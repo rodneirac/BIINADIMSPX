@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -69,16 +68,19 @@ if not df.empty:
 
     total_inad = df[df["Dias de atraso"] >= 0]["Montante em moeda interna"].sum()
     total_vencer = df[df["Dias de atraso"] < 0]["Montante em moeda interna"].sum()
+    total_geral = total_inad + total_vencer
 
     st.markdown("### Indicadores Gerais")
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Valor Total Inadimplente (R$)", f"{total_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     col2.metric("Valor Total À Vencer (R$)", f"{total_vencer:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    col3.metric("Valor Total Contas a Receber (R$)", f"{total_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
     agrupado = df[df["Dias de atraso"] >= 0].groupby(["Exercicio", "Prazo"]).agg({"Montante em moeda interna": "sum"}).unstack(fill_value=0)
     agrupado.columns = [col[1] for col in agrupado.columns]
     agrupado["Total Geral"] = agrupado.sum(axis=1)
     agrupado = agrupado.reset_index()
+    agrupado = agrupado.sort_values(by="Exercicio", ascending=False)
 
     st.markdown("### Quadro de Inadimplência por Exercício e Prazo")
     st.dataframe(agrupado.style.format({"Curto Prazo": "{:,.2f}", "Longo Prazo": "{:,.2f}", "Total Geral": "{:,.2f}"}).set_properties(**{"text-align": "right"}), use_container_width=True)
