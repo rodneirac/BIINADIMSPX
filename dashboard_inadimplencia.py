@@ -70,6 +70,35 @@ if not df.empty:
     df["Faixa atraso"] = df["Dias de atraso"].apply(classifica_atraso)
     df["Prazo"] = df["Dias de atraso"].apply(classifica_prazo)
 
+    total_inad = df[df["Dias de atraso"] >= 0]["Montante em moeda interna"].sum()
+    total_vencer = df[df["Dias de atraso"] < 0]["Montante em moeda interna"].sum()
+    total_geral = total_inad + total_vencer
+
+    st.markdown("### Indicadores Gerais (Cards)")
+    with st.container():
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f"""
+                <div style='background-color:#f0f2f6; padding:20px; border-radius:10px; text-align:center;'>
+                    <h4>Valor Total Inadimplente (R$)</h4>
+                    <p style='font-size:24px; font-weight:bold;'>{total_inad/1_000_000:,.0f} MM</p>
+                </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"""
+                <div style='background-color:#f0f2f6; padding:20px; border-radius:10px; text-align:center;'>
+                    <h4>Valor Total À Vencer (R$)</h4>
+                    <p style='font-size:24px; font-weight:bold;'>{total_vencer/1_000_000:,.0f} MM</p>
+                </div>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+                <div style='background-color:#f0f2f6; padding:20px; border-radius:10px; text-align:center;'>
+                    <h4>Valor Total Contas a Receber (R$)</h4>
+                    <p style='font-size:24px; font-weight:bold;'>{total_geral/1_000_000:,.0f} MM</p>
+                </div>
+            """, unsafe_allow_html=True)
+
     agrupado = df[df["Dias de atraso"] >= 0].groupby(["Exercicio", "Prazo"]).agg({"Montante em moeda interna": "sum"}).unstack(fill_value=0)
     agrupado.columns = [col[1] for col in agrupado.columns]
     agrupado["Total Geral"] = agrupado.sum(axis=1)
