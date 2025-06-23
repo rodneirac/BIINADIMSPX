@@ -34,20 +34,19 @@ def classifica_exercicio(data):
     else:
         return "Fora do período"
 
-def classifica_faixa(dias):
-    if dias < 0:
-        return "À Vencer"
-    elif dias <= 30:
-        return "Até 30 dias"
-    elif dias <= 60:
-        return "entre 31 e 60 dias"
+def classifica_faixa(exercicio, dias):
+    if exercicio == "2025":
+        if dias <= 30:
+            return "Até 30 dias"
+        elif dias <= 60:
+            return "entre 31 e 60 dias"
+        else:
+            return "mais de 61 dias"
     else:
-        return "mais de 61 dias"
+        return ""
 
 def classifica_prazo(dias):
-    if dias < 0:
-        return "À Vencer"
-    elif dias <= 60:
+    if dias <= 60:
         return "Curto Prazo"
     else:
         return "Longo Prazo"
@@ -61,8 +60,10 @@ if not df.empty:
     hoje = pd.Timestamp.today()
     df["Dias de atraso"] = (hoje - df["Vencimento líquido"]).dt.days
     df["Exercicio"] = df["Data do documento"].apply(classifica_exercicio)
-    df["Faixa"] = df["Dias de atraso"].apply(classifica_faixa)
+    df["Faixa"] = df.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
     df["Prazo"] = df["Dias de atraso"].apply(classifica_prazo)
+
+    df = df[(df["Exercicio"] != "Fora do período") & (df["Dias de atraso"] >= 0)]
 
     pivot = pd.pivot_table(
         df,
@@ -78,7 +79,7 @@ if not df.empty:
     def format_currency(v):
         return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-    st.markdown("### Quadro de Inadimplência por Exercício, Faixa e Prazo")
+    st.markdown("### Quadro de Inadimplência por Exercício e Prazo")
     st.dataframe(
         pivot.style.format({
             col: format_currency for col in pivot.columns if col not in ["Exercicio", "Faixa"]
