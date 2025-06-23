@@ -103,7 +103,19 @@ if not df.empty:
     agrupado.columns = [col[1] for col in agrupado.columns]
     agrupado["Total Geral"] = agrupado.sum(axis=1)
     agrupado = agrupado.reset_index()
-    agrupado = agrupado.sort_values(by="Exercicio", ascending=False)
+
+    # Adiciona total de 2025
+    mask_2025 = agrupado["Exercicio"].str.startswith("2025")
+    if mask_2025.any():
+        total_2025 = agrupado[mask_2025].sum(numeric_only=True)
+        total_row = pd.DataFrame({"Exercicio": ["**2025 (Total)**"],
+                                  "Curto Prazo": [total_2025.get("Curto Prazo", 0)],
+                                  "Longo Prazo": [total_2025.get("Longo Prazo", 0)],
+                                  "Total Geral": [total_2025.get("Total Geral", 0)]})
+        agrupado = pd.concat([total_row, agrupado], ignore_index=True)
+
+    # Formata em negrito os anos
+    agrupado["Exercicio"] = agrupado["Exercicio"].apply(lambda x: f"**{x}**" if not x.startswith("**") else x)
 
     st.markdown("### Quadro de Inadimplência por Exercício e Prazo")
     st.table(agrupado.style.format({
