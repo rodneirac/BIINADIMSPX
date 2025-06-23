@@ -63,8 +63,11 @@ if not df.empty:
     df["Faixa"] = df.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
     df["Prazo"] = df["Dias de atraso"].apply(classifica_prazo)
 
-    total_inad = df[df["Dias de atraso"] >= 0]["Montante em moeda interna"].sum()
-    total_vencer = df[df["Dias de atraso"] < 0]["Montante em moeda interna"].sum()
+    df_inad = df[df["Dias de atraso"] >= 0]
+    df_vencer = df[df["Dias de atraso"] < 0]
+
+    total_inad = df_inad["Montante em moeda interna"].sum()
+    total_vencer = df_vencer["Montante em moeda interna"].sum()
     total_geral = total_inad + total_vencer
 
     st.markdown("### Indicadores Gerais (Cards)")
@@ -92,10 +95,8 @@ if not df.empty:
                 </div>
             """, unsafe_allow_html=True)
 
-    df = df[df["Exercicio"] != "Fora do período"]
-
     pivot = pd.pivot_table(
-        df,
+        df_inad,
         index=["Exercicio", "Faixa"],
         values="Montante em moeda interna",
         columns="Prazo",
