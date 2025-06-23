@@ -67,30 +67,20 @@ if not df.empty:
     df["Faixa atraso"] = df["Dias de atraso"].apply(classifica_atraso)
     df["Prazo"] = df["Dias de atraso"].apply(classifica_prazo)
 
-    st.sidebar.header("Filtros")
-    exercicios = sorted(df["Exercicio"].unique())
-    prazo_opts = sorted(df["Prazo"].unique())
-
-    exercicio_sel = st.sidebar.multiselect("Filtrar por Exercício", exercicios, default=exercicios)
-    prazo_sel = st.sidebar.multiselect("Filtrar por Prazo", prazo_opts, default=prazo_opts)
-
-    df_filtrado = df[
-        df["Exercicio"].isin(exercicio_sel) &
-        df["Prazo"].isin(prazo_sel)
-    ]
-
-    total_valor = df_filtrado["Montante em moeda interna"].sum()
+    total_inad = df[df["Dias de atraso"] >= 0]["Montante em moeda interna"].sum()
+    total_vencer = df[df["Dias de atraso"] < 0]["Montante em moeda interna"].sum()
 
     st.markdown("### Indicadores Gerais")
-    st.metric("Valor Total (R$)", f"{total_valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    col1, col2 = st.columns(2)
+    col1.metric("Valor Total Inadimplente (R$)", f"{total_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    col2.metric("Valor Total À Vencer (R$)", f"{total_vencer:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-    st.markdown("---")
-    st.subheader("Distribuição por Exercício e Prazo")
+    agrupado = df[df["Dias de atraso"] >= 0].groupby(["Exercicio", "Prazo"]).agg({"Montante em moeda interna": "sum"}).unstack(fill_value=0)
+    agrupado.columns = [col[1] for col in agrupado.columns]
+    agrupado["Total Geral"] = agrupado.sum(axis=1)
+    agrupado = agrupado.reset_index()
 
-    agrupado = df_filtrado.groupby(["Exercicio", "Prazo"]).agg({"Montante em moeda interna": "sum"}).reset_index()
-    fig = px.bar(agrupado, x="Exercicio", y="Montante em moeda interna", color="Prazo", barmode="group",
-                 text_auto=True, labels={"Montante em moeda interna": "Valor (R$)"})
-    st.plotly_chart(fig, use_container_width=True)
-
+    st.markdown("### Quadro de Inadimplência por Exercício e Prazo")
+    st.dataframe(agrupado.style.format({"Curto Prazo": "{:,.2f}", "Longo Prazo": "{:,.2f}", "Total Geral": "{:,.2f}"}).set_properties(**{"text-align": "right"}), use_container_width=True)
 else:
     st.warning("Dados não disponíveis ou planilha vazia.")
