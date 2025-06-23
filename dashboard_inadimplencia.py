@@ -83,6 +83,11 @@ if not df.empty:
     agrupado = agrupado.sort_values(by="Exercicio", ascending=False)
 
     st.markdown("### Quadro de Inadimplência por Exercício e Prazo")
-    st.dataframe(agrupado.style.format({"Curto Prazo": "{:,.2f}", "Longo Prazo": "{:,.2f}", "Total Geral": "{:,.2f}"}).set_properties(**{"text-align": "right"}), use_container_width=True)
+    styled = agrupado.style.format({
+        "Curto Prazo": lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Longo Prazo": lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Total Geral": lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    }).set_properties(**{"text-align": "right"}).background_gradient(cmap="Blues")
+    st.dataframe(styled, use_container_width=True)
 else:
     st.warning("Dados não disponíveis ou planilha vazia.")
