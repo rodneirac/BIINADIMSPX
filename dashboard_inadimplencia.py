@@ -21,7 +21,7 @@ def load_data(url):
     df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
     return df
 
-def classifica_exercicio(data):
+def classifica_exercicio(data, dias_atraso):
     if data <= pd.Timestamp("2021-12-31"):
         return "2021(Acumulado)"
     elif data <= pd.Timestamp("2022-12-31"):
@@ -31,7 +31,12 @@ def classifica_exercicio(data):
     elif data <= pd.Timestamp("2024-12-31"):
         return "2024"
     elif data <= pd.Timestamp("2025-12-31"):
-        return "2025"
+        if dias_atraso <= 30:
+            return "2025 - Até 30 dias"
+        elif dias_atraso <= 60:
+            return "2025 - entre 31 e 60 dias"
+        else:
+            return "2025 - mais de 61 dias"
     else:
         return "Fora do período"
 
@@ -61,8 +66,8 @@ df = load_data(URL_DADOS)
 
 if not df.empty:
     hoje = pd.Timestamp.today()
-    df["Exercicio"] = df["Data do documento"].apply(classifica_exercicio)
     df["Dias de atraso"] = (hoje - df["Vencimento líquido"]).dt.days
+    df["Exercicio"] = df.apply(lambda row: classifica_exercicio(row["Data do documento"], row["Dias de atraso"]), axis=1)
     df["Faixa atraso"] = df["Dias de atraso"].apply(classifica_atraso)
     df["Prazo"] = df["Dias de atraso"].apply(classifica_prazo)
 
