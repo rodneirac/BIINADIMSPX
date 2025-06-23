@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
-import requests
+import plotly.express as px
 from datetime import datetime
+import requests
 from io import BytesIO
 
 # --- URLs E CONSTANTES DO GITHUB ---
@@ -39,6 +40,24 @@ def classifica_exercicio(data, dias_atraso):
     else:
         return "Fora do período"
 
+def classifica_atraso(dias):
+    if dias < 0:
+        return "À vencer"
+    elif dias <= 30:
+        return "Até 30 dias"
+    elif dias <= 60:
+        return "entre 31 e 60 dias"
+    else:
+        return "mais de 61 dias"
+
+def classifica_prazo(dias):
+    if dias < 0:
+        return "À vencer"
+    elif dias <= 60:
+        return "Curto Prazo"
+    else:
+        return "Longo Prazo"
+
 # --- INTERFACE ---
 st.image(LOGO_URL, width=200)
 st.title("Dashboard Inadimplência")
@@ -49,15 +68,49 @@ if not df.empty:
     hoje = pd.Timestamp.today()
     df["Dias de atraso"] = (hoje - df["Vencimento líquido"]).dt.days
     df["Exercicio"] = df.apply(lambda row: classifica_exercicio(row["Data do documento"], row["Dias de atraso"]), axis=1)
+    df["Faixa atraso"] = df["Dias de atraso"].apply(classifica_atraso)
+    df["Prazo"] = df["Dias de atraso"].apply(classifica_prazo)
 
-    agrupado = df[df["Dias de atraso"] >= 0].groupby(["Exercicio"]).agg({"Montante em moeda interna": "sum"}).reset_index()
-    
-    # Formatação visual com pandas Styler
-    styled = agrupado.style.format({"Montante em moeda interna": lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")}) \
-        .set_properties(**{"text-align": "center"}) \
-        .bar(subset=["Montante em moeda interna"], color='#5DADE2')
+    total_inad = df[df["Dias de atraso"] >= 0]["Montante em moeda interna"].sum()
+    total_vencer = df[df["Dias de atraso"] < 0]["Montante em moeda interna"].sum()
+    total_geral = total_inad + total_vencer
 
-    st.markdown("### Quadro de Inadimplência por Exercício (Visual Estilizado)")
-    st.dataframe(styled, use_container_width=True)
+    st.markdown("### Indicadores Gerais (Cards)")
+    with st.container():
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f"""
+                <div style='background-color:#f0f2f6; padding:20px; border-radius:10px; text-align:center;'>
+                    <h4>Valor Total Inadimplente (R$)</h4>
+                    <p style='font-size:24px; font-weight:bold;'>{total_inad/1_000_000:,.0f} MM</p>
+                </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"""
+                <div style='background-color:#f0f2f6; padding:20px; border-radius:10px; text-align:center;'>
+                    <h4>Valor Total À Vencer (R$)</h4>
+                    <p style='font-size:24px; font-weight:bold;'>{total_vencer/1_000_000:,.0f} MM</p>
+                </div>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+                <div style='background-color:#f0f2f6; padding:20px; border-radius:10px; text-align:center;'>
+                    <h4>Valor Total Contas a Receber (R$)</h4>
+                    <p style='font-size:24px; font-weight:bold;'>{total_geral/1_000_000:,.0f} MM</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+    agrupado = df[df["Dias de atraso"] >= 0].groupby(["Exercicio", "Prazo"]).agg({"Montante em moeda interna": "sum"}).unstack(fill_value=0)
+    agrupado.columns = [col[1] for col in agrupado.columns]
+    agrupado["Total Geral"] = agrupado.sum(axis=1)
+    agrupado = agrupado.reset_index()
+    agrupado = agrupado.sort_values(by="Exercicio", ascending=False)
+
+    st.markdown("### Quadro de Inadimplência por Exercício e Prazo")
+    st.dataframe(agrupado.style.format({
+        "Curto Prazo": lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Longo Prazo": lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Total Geral": lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    }).set_properties(**{"text-align": "right"}), use_container_width=True)
 else:
     st.warning("Dados não disponíveis ou planilha vazia.")
