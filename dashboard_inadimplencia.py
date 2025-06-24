@@ -23,7 +23,6 @@ LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 def load_data(url):
     response = requests.get(url)
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
-    # Garante que a coluna 'Nome do cliente' seja lida como texto
     if 'Nome do cliente' in df.columns:
         df['Nome do cliente'] = df['Nome do cliente'].astype(str)
     df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
@@ -88,6 +87,8 @@ if not df_original.empty and not df_regiao.empty:
     df_filtrado["Exercicio"] = df_filtrado["Data do documento"].apply(classifica_exercicio)
     df_filtrado["Faixa"] = df_filtrado.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
     df_filtrado["Prazo"] = df_filtrado["Dias de atraso"].apply(classifica_prazo)
+    
+    # Definição do df_inad que será usado em todo o restante do dashboard
     df_inad = df_filtrado[df_filtrado["Dias de atraso"] >= 0].copy()
     df_vencer = df_filtrado[df_filtrado["Dias de atraso"] < 0].copy()
 
@@ -110,17 +111,40 @@ if not df_original.empty and not df_regiao.empty:
 
     # --- SEÇÃO DE GRÁFICOS ---
     graf_col1, graf_col2 = st.columns(2)
-    # (Código dos gráficos de barra e pizza permanece o mesmo)
     with graf_col1:
         st.markdown("##### Inadimplência por Exercício")
-        # ... (código do gráfico de barras)
+        df_outros_anos = df_inad[df_inad['Exercicio'] != '2025'].copy()
+        inad_outros_anos = df_outros_anos.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
+        inad_outros_anos.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
+        df_2025 = df_inad[df_inad['Exercicio'] == '2025'].copy()
+        inad_2025_por_faixa = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
+        inad_2025_por_faixa = inad_2025_por_faixa[inad_2025_por_faixa['Faixa'] != '']
+        inad_2025_por_faixa['Categoria'] = '2025 - ' + inad_2025_por_faixa['Faixa']
+        inad_2025_por_faixa.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
+        df_grafico = pd.concat([inad_outros_anos, inad_2025_por_faixa[['Categoria', 'Valor']]], ignore_index=True)
+        if not df_grafico.empty:
+            df_grafico = df_grafico.sort_values('Categoria')
+            color_map = {cat: '#EA4335' for cat in inad_outros_anos['Categoria'].unique()}
+            cores_2025 = ['#FFC107', '#FF9800', '#F57C00']
+            categorias_2025 = sorted(inad_2025_por_faixa['Categoria'].unique())
+            for i, cat in enumerate(categorias_2025):
+                color_map[cat] = cores_2025[i % len(cores_2025)]
+            fig = px.bar(df_grafico, x='Categoria', y='Valor', text=df_grafico['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'), color='Categoria', color_discrete_map=color_map)
+            fig.update_layout(title='Detalhe por Exercício e Faixa (2025)', xaxis_title=None, yaxis_title="Valor (R$)", showlegend=False, title_font_size=16, height=400)
+            fig.update_traces(textposition='outside')
+            st.plotly_chart(fig, use_container_width=True)
+
     with graf_col2:
         st.markdown("##### Inadimplência por Região")
-        # ... (código do gráfico de pizza)
+        inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
+        fig_pie = px.pie(inad_por_regiao, names='Região', values='Montante em moeda interna', title='Participação por Região', hole=.3)
+        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+        fig_pie.update_layout(title_font_size=16, height=400)
+        st.plotly_chart(fig_pie, use_container_width=True)
 
-    # --- INÍCIO DOS NOVOS RESUMOS RECOLHÍVEIS ---
+    # --- RESUMOS RECOLHÍVEIS (EXPANDERS) ---
     st.markdown("<hr>", unsafe_allow_html=True)
-
+    
     with st.expander("Clique para ver o Resumo por Divisão"):
         st.markdown("##### Inadimplência Agregada por Divisão")
         resumo_divisao = df_inad.groupby('Divisão').agg(
@@ -155,7 +179,6 @@ if not df_original.empty and not df_regiao.empty:
             'Valor_Inadimplente': 'R$ {:,.2f}',
             'Representatividade (%)': '{:.2f}%'
         }), use_container_width=True)
-    # --- FIM DOS NOVOS RESUMOS ---
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
