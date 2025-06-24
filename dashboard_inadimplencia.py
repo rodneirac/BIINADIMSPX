@@ -6,7 +6,6 @@ from datetime import datetime
 from io import BytesIO
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-# NOVO: Define o layout para "wide" e adiciona um título para a aba do navegador
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
 # --- URLs E CONSTANTES DO GITHUB ---
@@ -64,27 +63,27 @@ if not df_original.empty and not df_regiao.empty:
     df['Região'] = df['Região'].fillna('Não definida')
 
     # --- BARRA LATERAL (SIDEBAR) COM FILTROS ---
-    st.sidebar.image(LOGO_URL, width=150)
-    st.sidebar.header("Filtros do Dashboard")
+    st.sidebar.title("Filtros")
 
+    # NOVO: Lógica do filtro de seleção única
     lista_regioes = sorted(df['Região'].unique())
-    regioes_selecionadas = st.sidebar.multiselect(
-        "Selecione a(s) Região(ões):",
-        options=lista_regioes,
-        default=lista_regioes  # Por padrão, todas as regiões são selecionadas
+    opcoes_filtro = ["TODAS AS REGIÕES"] + lista_regioes # Adiciona "TODAS" no início
+    
+    regiao_selecionada = st.sidebar.selectbox(
+        "Selecione a Região:",
+        options=opcoes_filtro
     )
 
-    # Verifica se o usuário selecionou alguma região
-    if not regioes_selecionadas:
-        st.error("Por favor, selecione ao menos uma região para exibir os dados.")
-        st.stop() # Interrompe a execução se nenhuma região for selecionada
-
     # --- FILTRAGEM DOS DADOS COM BASE NA SELEÇÃO ---
-    df_filtrado = df[df['Região'].isin(regioes_selecionadas)]
+    if regiao_selecionada == "TODAS AS REGIÕES":
+        df_filtrado = df.copy()
+    else:
+        df_filtrado = df[df['Região'] == regiao_selecionada].copy()
 
     # --- Início da Interface Principal ---
+    st.image(LOGO_URL, width=200) # LOGO DE VOLTA PARA A ÁREA PRINCIPAL
     st.title("Dashboard de Análise de Inadimplência")
-    st.markdown(f"**Regiões selecionadas:** {', '.join(regioes_selecionadas)}")
+    st.markdown(f"**Exibindo dados para:** `{regiao_selecionada}`") # Mostra a seleção atual
 
     # Cálculos agora baseados em df_filtrado
     hoje = pd.Timestamp.today()
@@ -96,6 +95,11 @@ if not df_original.empty and not df_regiao.empty:
     df_inad = df_filtrado[df_filtrado["Dias de atraso"] >= 0]
     df_vencer = df_filtrado[df_filtrado["Dias de atraso"] < 0]
 
+    # Verifica se há dados após a filtragem para evitar erros
+    if df_inad.empty:
+        st.warning(f"Não há dados de inadimplência para a seleção '{regiao_selecionada}'.")
+        st.stop()
+    
     total_inad = df_inad["Montante em moeda interna"].sum()
     total_vencer = df_vencer["Montante em moeda interna"].sum()
     total_geral = total_inad + total_vencer
@@ -113,18 +117,17 @@ if not df_original.empty and not df_regiao.empty:
     graf_col1, graf_col2 = st.columns(2)
     with graf_col1:
         st.markdown("##### Inadimplência por Exercício")
-        # (O código do gráfico de barras permanece, mas agora usa 'df_inad' que já está filtrado)
-        if not df_inad.empty:
-            # ... (código do gráfico de barras idêntico ao anterior)
-            df_outros_anos = df_inad[df_inad['Exercicio'] != '2025'].copy()
-            inad_outros_anos = df_outros_anos.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
-            inad_outros_anos.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
-            df_2025 = df_inad[df_inad['Exercicio'] == '2025'].copy()
-            inad_2025_por_faixa = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
-            inad_2025_por_faixa = inad_2025_por_faixa[inad_2025_por_faixa['Faixa'] != '']
-            inad_2025_por_faixa['Categoria'] = '2025 - ' + inad_2025_por_faixa['Faixa']
-            inad_2025_por_faixa.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
-            df_grafico = pd.concat([inad_outros_anos, inad_2025_por_faixa[['Categoria', 'Valor']]], ignore_index=True)
+        # O código do gráfico de barras permanece, mas agora usa 'df_inad' que já está filtrado
+        df_outros_anos = df_inad[df_inad['Exercicio'] != '2025'].copy()
+        inad_outros_anos = df_outros_anos.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
+        inad_outros_anos.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
+        df_2025 = df_inad[df_inad['Exercicio'] == '2025'].copy()
+        inad_2025_por_faixa = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
+        inad_2025_por_faixa = inad_2025_por_faixa[inad_2025_por_faixa['Faixa'] != '']
+        inad_2025_por_faixa['Categoria'] = '2025 - ' + inad_2025_por_faixa['Faixa']
+        inad_2025_por_faixa.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
+        df_grafico = pd.concat([inad_outros_anos, inad_2025_por_faixa[['Categoria', 'Valor']]], ignore_index=True)
+        if not df_grafico.empty:
             df_grafico = df_grafico.sort_values('Categoria')
             color_map = {cat: '#EA4335' for cat in inad_outros_anos['Categoria'].unique()}
             cores_2025 = ['#FFC107', '#FF9800', '#F57C00']
@@ -138,19 +141,18 @@ if not df_original.empty and not df_regiao.empty:
 
     with graf_col2:
         st.markdown("##### Inadimplência por Região")
-        # (O código do gráfico de pizza permanece, mas agora usa 'df_inad' que já está filtrado)
-        if not df_inad.empty:
-            inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
-            fig_pie = px.pie(inad_por_regiao, names='Região', values='Montante em moeda interna', title='Participação por Região', hole=.3)
-            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-            fig_pie.update_layout(title_font_size=16, height=400)
-            st.plotly_chart(fig_pie, use_container_width=True)
+        # O código do gráfico de pizza permanece, mas agora usa 'df_inad' que já está filtrado
+        inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
+        fig_pie = px.pie(inad_por_regiao, names='Região', values='Montante em moeda interna', title='Participação por Região', hole=.3)
+        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+        fig_pie.update_layout(title_font_size=16, height=400)
+        st.plotly_chart(fig_pie, use_container_width=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
     # --- Tabela Pivot ---
     st.markdown("### Quadro Detalhado de Inadimplência")
-    # (A tabela também usa 'df_inad' que já está filtrado)
+    # A tabela também usa 'df_inad' que já está filtrado
     pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"], values="Montante em moeda interna", columns="Prazo", aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
     def format_currency(v):
         return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
