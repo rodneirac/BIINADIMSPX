@@ -182,7 +182,7 @@ if not df_original.empty and not df_regiao.empty:
         hole=0.2
     )
     fig_regiao.update_traces(textposition='inside', textinfo='percent+label', pull=[0.05]*len(inad_por_regiao))
-    fig_regiao.update_layout(title_font_size=20, height=600)
+    fig_regiao.update_layout(title_font_size=20, height=900)
     st.plotly_chart(fig_regiao, use_container_width=True)
 
     # Resumo divisão
