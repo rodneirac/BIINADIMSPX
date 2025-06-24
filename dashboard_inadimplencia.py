@@ -101,73 +101,40 @@ if not df.empty:
                     <p style='font-size:20px; font-weight:bold;'>{total_geral/1_000_000:,.0f} MM</p>
                 </div>
             """, unsafe_allow_html=True)
-    
-    st.markdown("---") # Adiciona uma linha divisória
 
-    # --- INÍCIO DA SEÇÃO DO GRÁFICO DE BARRAS ---
+    st.markdown("---")
 
-    st.markdown("### Composição da Dívida (Inadimplência e A Vencer)")
+    # --- INÍCIO DA SEÇÃO DO GRÁFICO DE BARRAS (VERSÃO CORRIGIDA) ---
+    st.markdown("### Total Inadimplente por Exercício")
 
-    # 1. Preparar dados de inadimplência dos últimos 3 anos completos
-    anos_inadimplencia = ['2022', '2023', '2024']
-    df_inad_recente = df_inad[df_inad['Exercicio'].isin(anos_inadimplencia)]
-    inad_por_ano = df_inad_recente.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
-    inad_por_ano.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
-    inad_por_ano = inad_por_ano.sort_values('Categoria')
+    if not df_inad.empty:
+        # Agrupa os valores totais inadimplentes por exercício.
+        inad_por_exercicio = df_inad.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
+        inad_por_exercicio = inad_por_exercicio.sort_values('Exercicio')
 
-    # 2. Preparar dados a vencer de 2025 por Curto e Longo Prazo
-    df_vencer_2025 = df_vencer[df_vencer['Exercicio'] == '2025'].copy()
-    
-    # "Dias de atraso" é negativo para contas a vencer.
-    # Curto Prazo: vence em até 60 dias (Dias de atraso entre -60 e -1)
-    # Longo Prazo: vence em mais de 60 dias (Dias de atraso < -60)
-    def classifica_prazo_vencer(dias):
-        if dias >= -60:
-            return '2025 - A Vencer Curto Prazo'
-        else:
-            return '2025 - A Vencer Longo Prazo'
-
-    df_vencer_2025['Prazo_Vencer'] = df_vencer_2025['Dias de atraso'].apply(classifica_prazo_vencer)
-    vencer_2025_por_prazo = df_vencer_2025.groupby('Prazo_Vencer')['Montante em moeda interna'].sum().reset_index()
-    vencer_2025_por_prazo.rename(columns={'Prazo_Vencer': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
-
-    # 3. Combinar os dados para o gráfico
-    df_grafico = pd.concat([inad_por_ano, vencer_2025_por_prazo], ignore_index=True)
-
-    # 4. Criar e exibir o gráfico se houver dados
-    if not df_grafico.empty:
+        # Cria o gráfico de barras
         fig = px.bar(
-            df_grafico,
-            x='Categoria',
-            y='Valor',
-            text=df_grafico['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
-            title='Inadimplência (2022-2024) e A Vencer (2025)',
-            labels={'Categoria': 'Período', 'Valor': 'Valor (R$)'},
-            color='Categoria',
-            color_discrete_map={
-                '2022': '#FDBAAB',
-                '2023': '#F28B82',
-                '2024': '#EA4335',
-                '2025 - A Vencer Curto Prazo': '#A8DDB5',
-                '2025 - A Vencer Longo Prazo': '#43A047'
-            }
+            inad_por_exercicio,
+            x='Exercicio',
+            y='Montante em moeda interna',
+            text=inad_por_exercicio['Montante em moeda interna'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
+            title='Valor Total Inadimplente por Exercício'
         )
         fig.update_layout(
-            xaxis_title="Período/Classificação",
-            yaxis_title="Valor Total (R$)",
-            showlegend=False,
-            uniformtext_minsize=8, 
+            xaxis_title="Exercício",
+            yaxis_title="Valor Total Inadimplente (R$)",
+            uniformtext_minsize=8,
             uniformtext_mode='hide'
         )
-        fig.update_traces(textposition='outside')
+        fig.update_traces(textposition='outside', marker_color='#EA4335')
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.warning("Não há dados suficientes para gerar o gráfico de barras.")
-
+        st.warning("Não há dados de inadimplência para gerar o gráfico.")
     # --- FIM DA SEÇÃO DO GRÁFICO DE BARRAS ---
 
-    st.markdown("---") # Adiciona uma linha divisória
+    st.markdown("---")
 
+    # --- Tabela Pivot ---
     pivot = pd.pivot_table(
         df_inad,
         index=["Exercicio", "Faixa"],
