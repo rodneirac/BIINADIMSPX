@@ -104,30 +104,57 @@ if not df.empty:
 
     st.markdown("---")
 
-    # --- INÍCIO DA SEÇÃO DO GRÁFICO DE BARRAS (VERSÃO CORRIGIDA) ---
-    st.markdown("### Total Inadimplente por Exercício")
+    # --- INÍCIO DA SEÇÃO DO GRÁFICO DE BARRAS (VERSÃO ATUALIZADA) ---
+    st.markdown("### Detalhamento da Inadimplência por Exercício e Faixa (2025)")
 
     if not df_inad.empty:
-        # Agrupa os valores totais inadimplentes por exercício.
-        inad_por_exercicio = df_inad.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
-        inad_por_exercicio = inad_por_exercicio.sort_values('Exercicio')
+        # 1. Preparar dados para anos ANTERIORES a 2025 (total por ano)
+        df_outros_anos = df_inad[df_inad['Exercicio'] != '2025'].copy()
+        inad_outros_anos = df_outros_anos.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
+        inad_outros_anos.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
 
-        # Cria o gráfico de barras
+        # 2. Preparar dados para 2025, detalhados por FAIXA
+        df_2025 = df_inad[df_inad['Exercicio'] == '2025'].copy()
+        inad_2025_por_faixa = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
+        # Remove faixas vazias, caso existam
+        inad_2025_por_faixa = inad_2025_por_faixa[inad_2025_por_faixa['Faixa'] != '']
+        # Adiciona '2025 - ' ao nome da faixa para clareza no gráfico
+        inad_2025_por_faixa['Categoria'] = '2025 - ' + inad_2025_por_faixa['Faixa']
+        inad_2025_por_faixa.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
+
+        # 3. Combinar os dataframes para o gráfico final
+        df_grafico = pd.concat([inad_outros_anos, inad_2025_por_faixa[['Categoria', 'Valor']]], ignore_index=True)
+        df_grafico = df_grafico.sort_values('Categoria')
+
+        # 4. Criar o mapa de cores
+        # Cor padrão vermelha para os anos anteriores
+        color_map = {cat: '#EA4335' for cat in inad_outros_anos['Categoria'].unique()}
+        # Cores diferentes para as faixas de 2025
+        cores_2025 = ['#FFC107', '#FF9800', '#F57C00'] # Tons de Amarelo/Laranja
+        categorias_2025 = sorted(inad_2025_por_faixa['Categoria'].unique())
+        for i, cat in enumerate(categorias_2025):
+            color_map[cat] = cores_2025[i % len(cores_2025)] # Atribui as cores
+
+        # 5. Criar e exibir o gráfico
         fig = px.bar(
-            inad_por_exercicio,
-            x='Exercicio',
-            y='Montante em moeda interna',
-            text=inad_por_exercicio['Montante em moeda interna'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
-            title='Valor Total Inadimplente por Exercício'
+            df_grafico,
+            x='Categoria',
+            y='Valor',
+            text=df_grafico['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
+            title='Inadimplência por Exercício (com detalhamento para 2025)',
+            color='Categoria',
+            color_discrete_map=color_map
         )
         fig.update_layout(
-            xaxis_title="Exercício",
+            xaxis_title="Exercício / Faixa de Atraso em 2025",
             yaxis_title="Valor Total Inadimplente (R$)",
+            showlegend=False,
             uniformtext_minsize=8,
             uniformtext_mode='hide'
         )
-        fig.update_traces(textposition='outside', marker_color='#EA4335')
+        fig.update_traces(textposition='outside')
         st.plotly_chart(fig, use_container_width=True)
+
     else:
         st.warning("Não há dados de inadimplência para gerar o gráfico.")
     # --- FIM DA SEÇÃO DO GRÁFICO DE BARRAS ---
