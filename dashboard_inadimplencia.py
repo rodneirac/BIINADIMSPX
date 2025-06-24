@@ -113,9 +113,10 @@ if not df_original.empty and not df_regiao.empty:
     df_filtrado["Exercicio"] = df_filtrado["Data do documento"].apply(classifica_exercicio)
     df_filtrado["Faixa"] = df_filtrado.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
     df_filtrado["Prazo"] = df_filtrado["Dias de atraso"].apply(classifica_prazo)
-    
-    df_inad = df_filtrado[df_filtrado["Dias de atraso"] >= 0].copy()
-    df_vencer = df_filtrado[df_filtrado["Dias de atraso"] < 0].copy()
+
+    # --- NOVO CRITÉRIO DE INADIMPLÊNCIA ---
+    df_inad = df_filtrado[df_filtrado["Dias de atraso"] >= 1].copy()
+    df_vencer = df_filtrado[df_filtrado["Dias de atraso"] <= 0].copy()
 
     if df_inad.empty:
         st.warning("Não há dados de inadimplência para a seleção aplicada.")
