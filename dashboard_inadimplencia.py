@@ -17,6 +17,11 @@ URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DAD
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
+# --- BOTÃO PARA RECARREGAR ---
+if st.button("🔄 Recarregar dados"):
+    st.cache_data.clear()
+    st.experimental_rerun()
+
 @st.cache_data(ttl=3600)
 def load_data(url):
     response = requests.get(url)
@@ -61,6 +66,7 @@ def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
 
+# --- CARREGAMENTO ---
 df_original = load_data(URL_DADOS)
 df_regiao = load_region_data(URL_REGIAO)
 
@@ -129,28 +135,6 @@ if not df_original.empty and not df_regiao.empty:
         pivot.style.format({col: fmt for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
         use_container_width=True
     )
-
-    st.markdown("### Inadimplência por Exercício")
-    df_outros = df_inad[df_inad['Exercicio'] != '2025'].groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
-    df_outros.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
-
-    df_2025 = df_inad[df_inad['Exercicio'] == '2025']
-    df_2025_faixa = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
-    df_2025_faixa = df_2025_faixa[df_2025_faixa['Faixa'] != '']
-    df_2025_faixa['Categoria'] = '2025 - ' + df_2025_faixa['Faixa']
-    df_2025_faixa.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
-
-    df_graf = pd.concat([df_outros, df_2025_faixa[['Categoria', 'Valor']]], ignore_index=True)
-
-    if not df_graf.empty:
-        fig_bar = px.bar(df_graf, x='Categoria', y='Valor',
-                         text=df_graf['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
-                         color='Categoria')
-        fig_bar.update_layout(title='Detalhe por Exercício e Faixa (2025)', height=400, showlegend=False)
-        fig_bar.update_traces(textposition='outside')
-        st.plotly_chart(fig_bar, use_container_width=True)
-    else:
-        st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
     st.markdown("### Inadimplência por Região (3D Simulado)")
     df_pie = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
