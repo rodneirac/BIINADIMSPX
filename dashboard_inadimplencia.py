@@ -19,12 +19,12 @@ URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_RE
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
 # --- FUNÇÕES DE CARREGAMENTO DE DADOS ---
-@st.cache_data(ttl=3600)
+# NOVO: Usando @st.cache para maior estabilidade em alguns ambientes
+@st.cache(allow_output_mutation=True, ttl=3600)
 def load_data(url):
     response = requests.get(url)
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
-    # Garante que colunas de identificação sejam tratadas como texto (string)
-    if 'Divisao' in df.columns: # Correção: Usa 'Divisao' sem acento
+    if 'Divisao' in df.columns:
         df['Divisao'] = df['Divisao'].astype(str)
     if 'Nome do cliente' in df.columns:
         df['Nome do cliente'] = df['Nome do cliente'].astype(str)
@@ -32,12 +32,11 @@ def load_data(url):
     df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
     return df
 
-@st.cache_data(ttl=3600)
+@st.cache(allow_output_mutation=True, ttl=3600)
 def load_region_data(url):
     response = requests.get(url)
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
-    # Garante que a coluna de junção seja texto
-    if 'Divisão' in df.columns: # Aqui o nome original é 'Divisão' com acento
+    if 'Divisão' in df.columns:
         df['Divisão'] = df['Divisão'].astype(str)
     return df
 
@@ -67,13 +66,9 @@ df_regiao = load_region_data(URL_REGIAO)
 
 # --- Processamento e Junção dos Dados ---
 if not df_original.empty and not df_regiao.empty:
-    
-    # --- CORREÇÃO APLICADA AQUI ---
-    # Renomeia a coluna no df_regiao para corresponder ao df_original
     if 'Divisão' in df_regiao.columns:
         df_regiao.rename(columns={'Divisão': 'Divisao'}, inplace=True)
 
-    # A junção agora funciona com o nome de coluna correto e unificado
     df = pd.merge(df_original, df_regiao, on="Divisao", how="left")
     df['Região'] = df['Região'].fillna('Não definida')
 
@@ -116,14 +111,12 @@ if not df_original.empty and not df_regiao.empty:
 
     st.markdown("<hr>", unsafe_allow_html=True)
     
-    # ... (O código dos gráficos permanece o mesmo e deve funcionar agora) ...
+    # ... (O código dos gráficos permanece o mesmo) ...
 
-    # --- RESUMOS RECOLHÍVEIS ---
     st.markdown("<hr>", unsafe_allow_html=True)
     
     with st.expander("Clique para ver o Resumo por Divisão"):
         st.markdown("##### Inadimplência Agregada por Divisão")
-        # Correção: usa 'Divisao' sem acento no groupby
         resumo_divisao = df_inad.groupby('Divisao').agg(
             Valor_Inadimplente=('Montante em moeda interna', 'sum'),
             Qtde_Clientes=('Nome do cliente', 'nunique'),
@@ -136,7 +129,6 @@ if not df_original.empty and not df_regiao.empty:
             resumo_divisao['Representatividade (%)'] = 0
         resumo_divisao = resumo_divisao.sort_values(by='Valor_Inadimplente', ascending=False)
         
-        # Construção Manual da Tabela
         header_cols = st.columns((2, 2, 1, 1, 2))
         header_cols[0].markdown("**Divisão**")
         header_cols[1].markdown("**Valor Inadimplente**")
@@ -146,7 +138,6 @@ if not df_original.empty and not df_regiao.empty:
         
         for _, row in resumo_divisao.iterrows():
             row_cols = st.columns((2, 2, 1, 1, 2))
-            # Correção: usa 'Divisao' sem acento para buscar o dado da linha
             row_cols[0].write(row['Divisao'])
             row_cols[1].write(f"R$ {row['Valor_Inadimplente']:,.2f}")
             row_cols[2].write(row['Qtde_Clientes'])
@@ -166,7 +157,6 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cliente['Representatividade (%)'] = 0
         resumo_cliente = resumo_cliente.sort_values(by='Valor_Inadimplente', ascending=False).head(20)
 
-        # Construção Manual da Tabela
         header_cols_cli = st.columns((4, 2, 1, 2))
         header_cols_cli[0].markdown("**Nome do Cliente**")
         header_cols_cli[1].markdown("**Valor Inadimplente**")
