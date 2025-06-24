@@ -5,30 +5,31 @@ import plotly.express as px
 from datetime import datetime
 from io import BytesIO
 
+# --- CONFIGURAÇÃO DA PÁGINA ---
+# NOVO: Define o layout para "wide" e adiciona um título para a aba do navegador
+st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
+
 # --- URLs E CONSTANTES DO GITHUB ---
 OWNER = "rodneirac"
 REPO = "BIINADIMSPX"
 ARQUIVO_DADOS = "INADIMATUAL.XLSX"
-ARQUIVO_REGIAO = "REGIAO.xlsx"  # <-- NOVO: Nome do arquivo de regiões
+ARQUIVO_REGIAO = "REGIAO.xlsx"
 
 URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DADOS}"
-URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}" # <-- NOVO: URL para o arquivo de regiões
+URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
 # --- FUNÇÕES DE CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=3600)
 def load_data(url):
-    """Carrega os dados principais do Excel a partir de uma URL."""
     response = requests.get(url)
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
     df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
     df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
     return df
 
-# NOVO: Função dedicada para carregar os dados da região
 @st.cache_data(ttl=3600)
 def load_region_data(url):
-    """Carrega os dados de mapeamento de região a partir de uma URL."""
     response = requests.get(url)
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
     return df
@@ -53,74 +54,68 @@ def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
 
-# --- Início da Interface do Streamlit ---
-st.image(LOGO_URL, width=200)
-st.title("Dashboard Inadimplência")
-
-# Carrega os dois dataframes
-df = load_data(URL_DADOS)
+# --- CARREGAMENTO INICIAL DOS DADOS ---
+df_original = load_data(URL_DADOS)
 df_regiao = load_region_data(URL_REGIAO)
 
 # --- Processamento e Junção dos Dados ---
-if not df.empty and not df_regiao.empty:
-    # NOVO: Juntando os dados de região ao dataframe principal
-    # **Atenção**: Assumindo que a coluna de junção se chama 'Divisão' em ambos os arquivos.
-    # Se o nome for diferente em REGIAO.xlsx, ajuste o parâmetro 'on="Divisão"'.
-    df = pd.merge(df, df_regiao, on="Divisão", how="left")
-    
-    # Preenche regiões não encontradas para evitar erros
+if not df_original.empty and not df_regiao.empty:
+    df = pd.merge(df_original, df_regiao, on="Divisão", how="left")
     df['Região'] = df['Região'].fillna('Não definida')
 
-    hoje = pd.Timestamp.today()
-    df["Dias de atraso"] = (hoje - df["Vencimento líquido"]).dt.days
-    df["Exercicio"] = df["Data do documento"].apply(classifica_exercicio)
-    df["Faixa"] = df.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
-    df["Prazo"] = df["Dias de atraso"].apply(classifica_prazo)
+    # --- BARRA LATERAL (SIDEBAR) COM FILTROS ---
+    st.sidebar.image(LOGO_URL, width=150)
+    st.sidebar.header("Filtros do Dashboard")
 
-    df_inad = df[df["Dias de atraso"] >= 0]
-    df_vencer = df[df["Dias de atraso"] < 0]
+    lista_regioes = sorted(df['Região'].unique())
+    regioes_selecionadas = st.sidebar.multiselect(
+        "Selecione a(s) Região(ões):",
+        options=lista_regioes,
+        default=lista_regioes  # Por padrão, todas as regiões são selecionadas
+    )
+
+    # Verifica se o usuário selecionou alguma região
+    if not regioes_selecionadas:
+        st.error("Por favor, selecione ao menos uma região para exibir os dados.")
+        st.stop() # Interrompe a execução se nenhuma região for selecionada
+
+    # --- FILTRAGEM DOS DADOS COM BASE NA SELEÇÃO ---
+    df_filtrado = df[df['Região'].isin(regioes_selecionadas)]
+
+    # --- Início da Interface Principal ---
+    st.title("Dashboard de Análise de Inadimplência")
+    st.markdown(f"**Regiões selecionadas:** {', '.join(regioes_selecionadas)}")
+
+    # Cálculos agora baseados em df_filtrado
+    hoje = pd.Timestamp.today()
+    df_filtrado["Dias de atraso"] = (hoje - df_filtrado["Vencimento líquido"]).dt.days
+    df_filtrado["Exercicio"] = df_filtrado["Data do documento"].apply(classifica_exercicio)
+    df_filtrado["Faixa"] = df_filtrado.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
+    df_filtrado["Prazo"] = df_filtrado["Dias de atraso"].apply(classifica_prazo)
+
+    df_inad = df_filtrado[df_filtrado["Dias de atraso"] >= 0]
+    df_vencer = df_filtrado[df_filtrado["Dias de atraso"] < 0]
 
     total_inad = df_inad["Montante em moeda interna"].sum()
     total_vencer = df_vencer["Montante em moeda interna"].sum()
     total_geral = total_inad + total_vencer
 
     # --- Indicadores Gerais (Cards) ---
-    st.markdown("### Indicadores Gerais (Cards)")
-    # (O código dos cards permanece o mesmo)
-    with st.container():
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown(f"""
-                <div style='background-color:#f0f2f6; padding:15px; border-radius:8px; text-align:center;'>
-                    <h4>Valor Total Inadimplente (R$)</h4>
-                    <p style='font-size:20px; font-weight:bold;'>{total_inad/1_000_000:,.0f} MM</p>
-                </div>
-            """, unsafe_allow_html=True)
-        with col2:
-            st.markdown(f"""
-                <div style='background-color:#f0f2f6; padding:15px; border-radius:8px; text-align:center;'>
-                    <h4>Valor Total À Vencer (R$)</h4>
-                    <p style='font-size:20px; font-weight:bold;'>{total_vencer/1_000_000:,.0f} MM</p>
-                </div>
-            """, unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"""
-                <div style='background-color:#f0f2f6; padding:15px; border-radius:8px; text-align:center;'>
-                    <h4>Valor Total Contas a Receber (R$)</h4>
-                    <p style='font-size:20px; font-weight:bold;'>{total_geral/1_000_000:,.0f} MM</p>
-                </div>
-            """, unsafe_allow_html=True)
+    st.markdown("### Indicadores Gerais")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Valor Total Inadimplente", f"R$ {total_inad/1_000_000:,.1f} MM")
+    col2.metric("Valor Total à Vencer", f"R$ {total_vencer/1_000_000:,.1f} MM")
+    col3.metric("Valor Total Contas a Receber", f"R$ {total_geral/1_000_000:,.1f} MM")
 
-    st.markdown("---")
+    st.markdown("<hr>", unsafe_allow_html=True)
 
     # --- SEÇÃO DE GRÁFICOS ---
-    # Dividindo a área de gráficos em duas colunas
     graf_col1, graf_col2 = st.columns(2)
-
     with graf_col1:
-        # Gráfico de Barras (código anterior)
         st.markdown("##### Inadimplência por Exercício")
+        # (O código do gráfico de barras permanece, mas agora usa 'df_inad' que já está filtrado)
         if not df_inad.empty:
+            # ... (código do gráfico de barras idêntico ao anterior)
             df_outros_anos = df_inad[df_inad['Exercicio'] != '2025'].copy()
             inad_outros_anos = df_outros_anos.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
             inad_outros_anos.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
@@ -137,36 +132,29 @@ if not df.empty and not df_regiao.empty:
             for i, cat in enumerate(categorias_2025):
                 color_map[cat] = cores_2025[i % len(cores_2025)]
             fig = px.bar(df_grafico, x='Categoria', y='Valor', text=df_grafico['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'), color='Categoria', color_discrete_map=color_map)
-            fig.update_layout(title='Detalhe por Exercício e Faixa (2025)', xaxis_title=None, yaxis_title="Valor (R$)", showlegend=False)
+            fig.update_layout(title='Detalhe por Exercício e Faixa (2025)', xaxis_title=None, yaxis_title="Valor (R$)", showlegend=False, title_font_size=16, height=400)
             fig.update_traces(textposition='outside')
             st.plotly_chart(fig, use_container_width=True)
 
-    # --- NOVO: GRÁFICO DE PIZZA POR REGIÃO ---
     with graf_col2:
         st.markdown("##### Inadimplência por Região")
+        # (O código do gráfico de pizza permanece, mas agora usa 'df_inad' que já está filtrado)
         if not df_inad.empty:
             inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
-            
-            fig_pie = px.pie(
-                inad_por_regiao,
-                names='Região',
-                values='Montante em moeda interna',
-                title='Participação por Região',
-                hole=.3 # Para criar um gráfico de rosca (donut chart)
-            )
+            fig_pie = px.pie(inad_por_regiao, names='Região', values='Montante em moeda interna', title='Participação por Região', hole=.3)
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+            fig_pie.update_layout(title_font_size=16, height=400)
             st.plotly_chart(fig_pie, use_container_width=True)
-    # --- FIM DO NOVO GRÁFICO ---
 
-    st.markdown("---")
+    st.markdown("<hr>", unsafe_allow_html=True)
 
     # --- Tabela Pivot ---
-    # (O código da Tabela Pivot permanece o mesmo)
+    st.markdown("### Quadro Detalhado de Inadimplência")
+    # (A tabela também usa 'df_inad' que já está filtrado)
     pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"], values="Montante em moeda interna", columns="Prazo", aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
     def format_currency(v):
         return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    st.markdown("### Quadro de Inadimplência por Exercício e Prazo")
     st.dataframe(pivot.style.format({col: format_currency for col in pivot.columns if col not in ["Exercicio", "Faixa"]}).set_properties(**{"text-align": "center"}), use_container_width=True)
 
 else:
-    st.warning("Dados não disponíveis. Verifique se os arquivos estão nos locais corretos no GitHub.")
+    st.error("Dados não disponíveis. Verifique se os arquivos estão nos locais corretos no GitHub e se os nomes das colunas de junção estão corretos.")
