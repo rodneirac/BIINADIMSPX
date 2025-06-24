@@ -86,24 +86,20 @@ if not df_original.empty and not df_regiao.empty:
     # --- SIDEBAR COM FILTROS ---
     st.sidebar.title("Filtros")
 
-    # Filtro de Região
     lista_regioes = sorted(df['Região'].unique())
     opcoes_regiao = ["TODAS AS REGIÕES"] + lista_regioes
     regiao_selecionada = st.sidebar.selectbox("Selecione a Região:", options=opcoes_regiao)
 
-    # Filtro de Divisão
     lista_divisoes = sorted(df[coluna_divisao_principal].unique())
     opcoes_divisao = ["TODAS AS DIVISÕES"] + lista_divisoes
     divisao_selecionada = st.sidebar.selectbox("Selecione a Divisão:", options=opcoes_divisao)
 
-    # Aplicar filtros
     df_filtrado = df.copy()
     if regiao_selecionada != "TODAS AS REGIÕES":
         df_filtrado = df_filtrado[df_filtrado['Região'] == regiao_selecionada]
     if divisao_selecionada != "TODAS AS DIVISÕES":
         df_filtrado = df_filtrado[df_filtrado[coluna_divisao_principal] == divisao_selecionada]
 
-    # --- TÍTULO E INFORMAÇÃO ---
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
     st.markdown(f"**Exibindo dados para:** Região: `{regiao_selecionada}` | Divisão: `{divisao_selecionada}`")
@@ -114,7 +110,6 @@ if not df_original.empty and not df_regiao.empty:
     df_filtrado["Faixa"] = df_filtrado.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
     df_filtrado["Prazo"] = df_filtrado["Dias de atraso"].apply(classifica_prazo)
 
-    # --- NOVO CRITÉRIO DE INADIMPLÊNCIA ---
     df_inad = df_filtrado[df_filtrado["Dias de atraso"] >= 1].copy()
     df_vencer = df_filtrado[df_filtrado["Dias de atraso"] <= 0].copy()
 
@@ -134,7 +129,6 @@ if not df_original.empty and not df_regiao.empty:
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # Gráficos
     graf_col1, graf_col2 = st.columns(2)
     with graf_col1:
         st.markdown("##### Inadimplência por Exercício")
@@ -164,17 +158,25 @@ if not df_original.empty and not df_regiao.empty:
             st.plotly_chart(fig_exercicio, use_container_width=True)
 
     with graf_col2:
-        st.markdown("##### Inadimplência por Região")
+        st.markdown("##### Inadimplência por Região (3D Simulado)")
         inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
-        fig_regiao = px.pie(inad_por_regiao, names='Região', values='Montante em moeda interna',
-                            title='Participação por Região', hole=.3)
-        fig_regiao.update_traces(textposition='inside', textinfo='percent+label')
+        fig_regiao = px.pie(
+            inad_por_regiao,
+            names='Região',
+            values='Montante em moeda interna',
+            title='Participação por Região',
+            hole=0.2
+        )
+        fig_regiao.update_traces(
+            textposition='inside',
+            textinfo='percent+label',
+            pull=[0.05] * len(inad_por_regiao)
+        )
         fig_regiao.update_layout(title_font_size=16, height=400)
         st.plotly_chart(fig_regiao, use_container_width=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # Tabela detalhada
     st.markdown("### Quadro Detalhado de Inadimplência")
     pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"],
                            values="Montante em moeda interna", columns="Prazo",
