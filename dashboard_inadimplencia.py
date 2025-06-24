@@ -112,7 +112,7 @@ if not df_original.empty and not df_regiao.empty:
     graf_col1, graf_col2 = st.columns(2)
     with graf_col1:
         st.markdown("##### Inadimplência por Exercício")
-        # (código do gráfico de barras - sem alterações)
+        # (código do gráfico de barras)
         df_outros_anos = df_inad[df_inad['Exercicio'] != '2025'].copy()
         inad_outros_anos = df_outros_anos.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
         inad_outros_anos.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
@@ -136,12 +136,12 @@ if not df_original.empty and not df_regiao.empty:
 
     with graf_col2:
         st.markdown("##### Inadimplência por Região")
-        # (código do gráfico de pizza - sem alterações)
+        # (código do gráfico de pizza)
         inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
         fig_pie = px.pie(inad_por_regiao, names='Região', values='Montante em moeda interna', title='Participação por Região', hole=.3)
         fig_pie.update_traces(textposition='inside', textinfo='percent+label')
         fig_pie.update_layout(title_font_size=16, height=400)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig_pie, use_container_width=True)
 
     # --- RESUMOS RECOLHÍVEIS (EXPANDERS) ---
     st.markdown("<hr>", unsafe_allow_html=True)
@@ -159,15 +159,10 @@ if not df_original.empty and not df_regiao.empty:
         else:
             resumo_divisao['Representatividade (%)'] = 0
         
-        # Ordena os dados ANTES de formatar
         resumo_divisao = resumo_divisao.sort_values(by='Valor_Inadimplente', ascending=False)
         
-        # NOVO: Limpa o índice e formata usando .style de forma segura
-        resumo_divisao_display = resumo_divisao.reset_index(drop=True)
-        st.dataframe(resumo_divisao_display.style.format({
-            'Valor_Inadimplente': 'R$ {:,.2f}',
-            'Representatividade (%)': '{:.2f}%'
-        }), use_container_width=True)
+        # NOVO: EXIBIÇÃO SEM NENHUMA FORMATAÇÃO PARA TESTE
+        st.dataframe(resumo_divisao, use_container_width=True)
 
     with st.expander("Clique para ver o Resumo por Cliente"):
         st.markdown("##### Maiores Devedores (Top 20 Clientes)")
@@ -180,16 +175,11 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cliente['Representatividade (%)'] = (resumo_cliente['Valor_Inadimplente'] / total_inad_resumo_cli) * 100
         else:
             resumo_cliente['Representatividade (%)'] = 0
-
-        # Ordena e pega o Top 20 ANTES de formatar
+            
         resumo_cliente = resumo_cliente.sort_values(by='Valor_Inadimplente', ascending=False).head(20)
         
-        # NOVO: Limpa o índice e formata usando .style de forma segura
-        resumo_cliente_display = resumo_cliente.reset_index(drop=True)
-        st.dataframe(resumo_cliente_display.style.format({
-            'Valor_Inadimplente': 'R$ {:,.2f}',
-            'Representatividade (%)': '{:.2f}%'
-        }), use_container_width=True)
+        # NOVO: EXIBIÇÃO SEM NENHUMA FORMATAÇÃO PARA TESTE
+        st.dataframe(resumo_cliente, use_container_width=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
