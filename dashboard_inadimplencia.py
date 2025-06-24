@@ -23,7 +23,6 @@ LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 def load_data(url):
     response = requests.get(url)
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
-    # As conversões de tipo serão feitas de forma robusta mais tarde
     df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
     df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
     return df
@@ -51,13 +50,14 @@ def classifica_exercicio(data):
     elif data <= pd.Timestamp("2024-12-31"): return "2024"
     elif data <= pd.Timestamp("2025-12-31"): return "2025"
     else: return "Fora do período"
-# ... (outras funções de classificação) ...
+
 def classifica_faixa(exercicio, dias):
     if exercicio == "2025":
         if dias <= 30: return "Até 30 dias"
         elif dias <= 60: return "entre 31 e 60 dias"
         else: return "mais de 61 dias"
     return ""
+
 def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
@@ -67,28 +67,22 @@ df_original = load_data(URL_DADOS)
 df_regiao = load_region_data(URL_REGIAO)
 
 if not df_original.empty and not df_regiao.empty:
-    # 1. Encontra dinamicamente o nome da coluna de divisão em cada arquivo
     coluna_divisao_principal = get_division_column_name(df_original)
     coluna_divisao_regiao = get_division_column_name(df_regiao)
 
     if not coluna_divisao_principal or not coluna_divisao_regiao:
-        st.error("Erro Crítico: A coluna 'Divisao' ou 'Divisão' não foi encontrada em um dos arquivos fonte. Verifique seus arquivos Excel.")
+        st.error("Erro Crítico: A coluna 'Divisao' ou 'Divisão' não foi encontrada em um dos arquivos fonte.")
         st.stop()
 
-    # 2. Garante que as colunas sejam do tipo texto para a junção
     df_original[coluna_divisao_principal] = df_original[coluna_divisao_principal].astype(str)
     df_regiao[coluna_divisao_regiao] = df_regiao[coluna_divisao_regiao].astype(str)
     if 'Nome do cliente' in df_original.columns:
         df_original['Nome do cliente'] = df_original['Nome do cliente'].astype(str)
 
-    # 3. Renomeia a coluna no arquivo de região para corresponder ao arquivo principal
     df_regiao.rename(columns={coluna_divisao_regiao: coluna_divisao_principal}, inplace=True)
-
-    # 4. Faz a junção usando o nome de coluna correto e unificado
     df = pd.merge(df_original, df_regiao, on=coluna_divisao_principal, how="left")
     df['Região'] = df['Região'].fillna('Não definida')
 
-    # --- BARRA LATERAL (SIDEBAR) COM FILTROS ---
     st.sidebar.title("Filtros")
     lista_regioes = sorted(df['Região'].unique())
     opcoes_filtro = ["TODAS AS REGIÕES"] + lista_regioes
@@ -99,7 +93,6 @@ if not df_original.empty and not df_regiao.empty:
     else:
         df_filtrado = df[df['Região'] == regiao_selecionada].copy()
 
-    # --- Início da Interface Principal ---
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
     st.markdown(f"**Exibindo dados para:** `{regiao_selecionada}`")
@@ -129,18 +122,47 @@ if not df_original.empty and not df_regiao.empty:
 
     st.markdown("<hr>", unsafe_allow_html=True)
     
-    # ... (O código dos gráficos permanece o mesmo) ...
+    # --- SEÇÃO DE GRÁFICOS (CÓDIGO COMPLETO REINSERIDO) ---
+    graf_col1, graf_col2 = st.columns(2)
+    with graf_col1:
+        st.markdown("##### Inadimplência por Exercício")
+        df_outros_anos = df_inad[df_inad['Exercicio'] != '2025'].copy()
+        inad_outros_anos = df_outros_anos.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
+        inad_outros_anos.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
+        df_2025 = df_inad[df_inad['Exercicio'] == '2025'].copy()
+        inad_2025_por_faixa = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
+        inad_2025_por_faixa = inad_2025_por_faixa[inad_2025_por_faixa['Faixa'] != '']
+        inad_2025_por_faixa['Categoria'] = '2025 - ' + inad_2025_por_faixa['Faixa']
+        inad_2025_por_faixa.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
+        df_grafico = pd.concat([inad_outros_anos, inad_2025_por_faixa[['Categoria', 'Valor']]], ignore_index=True)
+        if not df_grafico.empty:
+            df_grafico = df_grafico.sort_values('Categoria')
+            color_map = {cat: '#EA4335' for cat in inad_outros_anos['Categoria'].unique()}
+            cores_2025 = ['#FFC107', '#FF9800', '#F57C00']
+            categorias_2025 = sorted(inad_2025_por_faixa['Categoria'].unique())
+            for i, cat in enumerate(categorias_2025):
+                color_map[cat] = cores_2025[i % len(cores_2025)]
+            fig = px.bar(df_grafico, x='Categoria', y='Valor', text=df_grafico['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'), color='Categoria', color_discrete_map=color_map)
+            fig.update_layout(title='Detalhe por Exercício e Faixa (2025)', xaxis_title=None, yaxis_title="Valor (R$)", showlegend=False, title_font_size=16, height=400)
+            fig.update_traces(textposition='outside')
+            st.plotly_chart(fig, use_container_width=True)
+            
+    with graf_col2:
+        st.markdown("##### Inadimplência por Região")
+        inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
+        fig_pie = px.pie(inad_por_regiao, names='Região', values='Montante em moeda interna', title='Participação por Região', hole=.3)
+        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+        fig_pie.update_layout(title_font_size=16, height=400)
+        st.plotly_chart(fig_pie, use_container_width=True)
 
-    # --- RESUMO SIMPLES POR DIVISÃO ---
     st.markdown("<hr>", unsafe_allow_html=True)
+    
+    # --- RESUMO SIMPLES POR DIVISÃO ---
     with st.expander("Clique para ver o Resumo por Divisão"):
         st.markdown("##### Inadimplência Agregada por Divisão")
-        
-        # Usa a variável com o nome correto da coluna
         resumo_divisao = df_inad.groupby(coluna_divisao_principal)['Montante em moeda interna'].sum().reset_index()
         resumo_divisao.rename(columns={coluna_divisao_principal: 'Divisão', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
         resumo_divisao = resumo_divisao.sort_values(by='Valor Inadimplente', ascending=False)
-        
         st.dataframe(resumo_divisao, use_container_width=True)
     
     st.markdown("<hr>", unsafe_allow_html=True)
