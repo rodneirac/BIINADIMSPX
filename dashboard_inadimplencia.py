@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import requests
@@ -63,7 +62,7 @@ def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
 
-# --- CARREGAMENTO E PROCESSAMENTO ROBUSTO DOS DADOS ---
+# --- CARREGAMENTO E PROCESSAMENTO DOS DADOS ---
 df_original = load_data(URL_DADOS)
 df_regiao = load_region_data(URL_REGIAO)
 
@@ -142,38 +141,41 @@ if not df_original.empty and not df_regiao.empty:
             categorias_2025 = sorted(inad_2025_por_faixa['Categoria'].unique())
             for i, cat in enumerate(categorias_2025):
                 color_map[cat] = cores_2025[i % len(cores_2025)]
-            fig = px.bar(df_grafico, x='Categoria', y='Valor', text=df_grafico['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'), color='Categoria', color_discrete_map=color_map)
-            fig.update_layout(title='Detalhe por Exercício e Faixa (2025)', xaxis_title=None, yaxis_title="Valor (R$)", showlegend=False, title_font_size=16, height=400)
-            fig.update_traces(textposition='outside')
-            st.plotly_chart(fig, use_container_width=True)
+            fig_exercicio = px.bar(df_grafico, x='Categoria', y='Valor',
+                                   text=df_grafico['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
+                                   color='Categoria',
+                                   color_discrete_map=color_map)
+            fig_exercicio.update_layout(title='Detalhe por Exercício e Faixa (2025)', xaxis_title=None,
+                                        yaxis_title="Valor (R$)", showlegend=False, title_font_size=16, height=400)
+            fig_exercicio.update_traces(textposition='outside')
+            st.plotly_chart(fig_exercicio, use_container_width=True)
             
     with graf_col2:
         st.markdown("##### Inadimplência por Região")
         inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
-        fig_pie = px.pie(inad_por_regiao, names='Região', values='Montante em moeda interna', title='Participação por Região', hole=.3)
-        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-        fig_pie.update_layout(title_font_size=16, height=400)
-        st.plotly_chart(fig, use_container_width=True)
+        fig_regiao = px.pie(inad_por_regiao, names='Região', values='Montante em moeda interna',
+                            title='Participação por Região', hole=.3)
+        fig_regiao.update_traces(textposition='inside', textinfo='percent+label')
+        fig_regiao.update_layout(title_font_size=16, height=400)
+        st.plotly_chart(fig_regiao, use_container_width=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
     
     st.markdown("### Quadro Detalhado de Inadimplência")
-    pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"], values="Montante em moeda interna", columns="Prazo", aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
-    def format_currency(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    
-    # --- CORREÇÃO DO MÉTODO DE ESTILO DA TABELA PIVOT ---
-    def center_align(s):
-        return 'text-align: center'
-        
+    pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"],
+                           values="Montante em moeda interna", columns="Prazo",
+                           aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
+
+    def format_currency(v): 
+        return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
     st.dataframe(
-        pivot.style.format({col: format_currency for col in pivot.columns if col not in ["Exercicio", "Faixa"]})
-             .map(center_align), # Usando .map() que é compatível
+        pivot.style.format({col: format_currency for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
         use_container_width=True
     )
     
     st.markdown("<hr>", unsafe_allow_html=True)
     
-    # --- RESUMO POR DIVISÃO NO FINAL ---
     with st.expander("Clique para ver o Resumo por Divisão"):
         st.markdown("##### Inadimplência Agregada por Divisão")
         resumo_divisao = df_inad.groupby(coluna_divisao_principal)['Montante em moeda interna'].sum().reset_index()
