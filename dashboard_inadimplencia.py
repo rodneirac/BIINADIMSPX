@@ -33,7 +33,6 @@ def load_region_data(url):
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
     return df
 
-# --- FUNÇÃO AUXILIAR ---
 def get_division_column_name(df):
     if 'Divisao' in df.columns:
         return 'Divisao'
@@ -42,7 +41,6 @@ def get_division_column_name(df):
     else:
         return None
 
-# --- CLASSIFICAÇÃO ---
 def classifica_exercicio(data):
     if pd.isnull(data):
         return "Sem data"
@@ -65,12 +63,11 @@ def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
 
-# --- CARREGAMENTO DOS DADOS ---
+# --- CARREGAMENTO ---
 df_original = load_data(URL_DADOS)
 df_regiao = load_region_data(URL_REGIAO)
 
 if not df_original.empty and not df_regiao.empty:
-    # Soma bruta da planilha original
     soma_bruta_planilha = df_original["Montante em moeda interna"].sum()
 
     coluna_divisao_principal = get_division_column_name(df_original)
@@ -83,15 +80,16 @@ if not df_original.empty and not df_regiao.empty:
     df_original[coluna_divisao_principal] = df_original[coluna_divisao_principal].astype(str)
     df_regiao[coluna_divisao_regiao] = df_regiao[coluna_divisao_regiao].astype(str)
 
-    df_regiao.rename(columns={coluna_divisao_regiao: coluna_divisao_principal}, inplace=True)
+    # ✅ Remove divisões duplicadas no arquivo de regiões para evitar duplicação no merge
+    df_regiao = df_regiao.drop_duplicates(subset=[coluna_divisao_regiao])
+
     df_merged = pd.merge(df_original, df_regiao, on=coluna_divisao_principal, how="left")
 
     soma_apos_merge = df_merged["Montante em moeda interna"].sum()
 
-    # Alerta se houver diferença após merge
     if abs(soma_bruta_planilha - soma_apos_merge) > 1:
-        st.warning(f"Atenção: A soma do montante após o merge (R$ {soma_apos_merge:,.2f}) é diferente da soma da planilha (R$ {soma_bruta_planilha:,.2f}). Verifique possíveis duplicações no merge.")
-
+        st.warning(f"Atenção: A soma do montante após o merge (R$ {soma_apos_merge:,.2f}) é diferente da soma da planilha (R$ {soma_bruta_planilha:,.2f}). Verifique os dados.")
+    
     # Filtros
     st.sidebar.title("Filtros")
     lista_regioes = sorted(df_merged['Região'].fillna('Não definida').unique())
@@ -119,7 +117,6 @@ if not df_original.empty and not df_regiao.empty:
     total_vencer = df_vencer["Montante em moeda interna"].sum()
     total_geral = total_inad + total_vencer
 
-    # Título e indicadores
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
     st.markdown(f"**Exibindo dados para:** Região: `{regiao_selecionada}` | Divisão: `{divisao_selecionada}`")
