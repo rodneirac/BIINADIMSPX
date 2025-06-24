@@ -20,7 +20,7 @@ LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 # --- BOTÃO PARA RECARREGAR ---
 if st.button("🔄 Recarregar dados"):
     st.cache_data.clear()
-    st.experimental_rerun()
+    st.rerun()
 
 @st.cache_data(ttl=3600)
 def load_data(url):
@@ -66,7 +66,6 @@ def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
 
-# --- CARREGAMENTO ---
 df_original = load_data(URL_DADOS)
 df_regiao = load_region_data(URL_REGIAO)
 
