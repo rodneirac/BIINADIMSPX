@@ -181,10 +181,10 @@ if not df_original.empty and not df_regiao.empty:
         resumo_divisao = df_inad.groupby(coluna_divisao_principal)['Montante em moeda interna'].sum().reset_index()
         resumo_divisao.rename(columns={coluna_divisao_principal: 'Divisão', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
         resumo_divisao = resumo_divisao.sort_values(by='Valor Inadimplente', ascending=False).reset_index(drop=True)
-        resumo_divisao['Valor Inadimplente (Milhares)'] = resumo_divisao['Valor Inadimplente'].apply(
-            lambda x: f'R$ {x/1_000:,.1f} K'.replace(",", "X").replace(".", ",").replace("X", ".")
+        resumo_divisao['Valor Inadimplente'] = resumo_divisao['Valor Inadimplente'].apply(
+            lambda x: f'R$ {x:,.2f}'.replace(",", "X").replace(".", ",").replace("X", ".")
         )
-        st.dataframe(resumo_divisao[['Divisão', 'Valor Inadimplente (Milhares)']], use_container_width=True)
+        st.dataframe(resumo_divisao, use_container_width=True)
 
 else:
     st.error("Dados não disponíveis.")
