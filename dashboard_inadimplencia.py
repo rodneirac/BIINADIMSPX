@@ -18,7 +18,7 @@ URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DAD
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
-# --- FUNÇÕES DE CARREGAMENTO DE DADOS ---
+# --- FUNÇÕES DE CARREGAMENTO ---
 @st.cache_data(ttl=3600)
 def load_data(url):
     response = requests.get(url)
@@ -33,7 +33,7 @@ def load_region_data(url):
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
     return df
 
-# --- FUNÇÃO AUXILIAR PARA ENCONTRAR NOME DA COLUNA ---
+# --- FUNÇÃO AUXILIAR ---
 def get_division_column_name(df):
     if 'Divisao' in df.columns:
         return 'Divisao'
@@ -42,14 +42,17 @@ def get_division_column_name(df):
     else:
         return None
 
-# --- FUNÇÕES DE CLASSIFICAÇÃO ---
+# --- CLASSIFICAÇÃO ---
 def classifica_exercicio(data):
-    if data <= pd.Timestamp("2021-12-31"): return "2021(Acumulado)"
-    elif data <= pd.Timestamp("2022-12-31"): return "2022"
-    elif data <= pd.Timestamp("2023-12-31"): return "2023"
-    elif data <= pd.Timestamp("2024-12-31"): return "2024"
-    elif data <= pd.Timestamp("2025-12-31"): return "2025"
-    else: return "Fora do período"
+    if pd.isnull(data):
+        return "Sem data"
+    ano = data.year
+    if ano <= 2021: return "2021(Acumulado)"
+    elif ano == 2022: return "2022"
+    elif ano == 2023: return "2023"
+    elif ano == 2024: return "2024"
+    elif ano == 2025: return "2025"
+    else: return "Futuro"
 
 def classifica_faixa(exercicio, dias):
     if exercicio == "2025":
@@ -62,47 +65,46 @@ def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
 
-# --- CARREGAMENTO E PROCESSAMENTO DOS DADOS ---
+# --- CARREGAMENTO DOS DADOS ---
 df_original = load_data(URL_DADOS)
 df_regiao = load_region_data(URL_REGIAO)
 
 if not df_original.empty and not df_regiao.empty:
+    # Soma bruta da planilha original
+    soma_bruta_planilha = df_original["Montante em moeda interna"].sum()
+
     coluna_divisao_principal = get_division_column_name(df_original)
     coluna_divisao_regiao = get_division_column_name(df_regiao)
 
     if not coluna_divisao_principal or not coluna_divisao_regiao:
-        st.error("Erro Crítico: A coluna 'Divisao' ou 'Divisão' não foi encontrada em um dos arquivos fonte.")
+        st.error("Erro Crítico: A coluna de divisão não foi encontrada em um dos arquivos.")
         st.stop()
 
     df_original[coluna_divisao_principal] = df_original[coluna_divisao_principal].astype(str)
     df_regiao[coluna_divisao_regiao] = df_regiao[coluna_divisao_regiao].astype(str)
-    if 'Nome do cliente' in df_original.columns:
-        df_original['Nome do cliente'] = df_original['Nome do cliente'].astype(str)
 
     df_regiao.rename(columns={coluna_divisao_regiao: coluna_divisao_principal}, inplace=True)
-    df = pd.merge(df_original, df_regiao, on=coluna_divisao_principal, how="left")
-    df['Região'] = df['Região'].fillna('Não definida')
+    df_merged = pd.merge(df_original, df_regiao, on=coluna_divisao_principal, how="left")
 
-    # --- SIDEBAR COM FILTROS ---
+    soma_apos_merge = df_merged["Montante em moeda interna"].sum()
+
+    # Alerta se houver diferença após merge
+    if abs(soma_bruta_planilha - soma_apos_merge) > 1:
+        st.warning(f"Atenção: A soma do montante após o merge (R$ {soma_apos_merge:,.2f}) é diferente da soma da planilha (R$ {soma_bruta_planilha:,.2f}). Verifique possíveis duplicações no merge.")
+
+    # Filtros
     st.sidebar.title("Filtros")
+    lista_regioes = sorted(df_merged['Região'].fillna('Não definida').unique())
+    regiao_selecionada = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + lista_regioes)
 
-    lista_regioes = sorted(df['Região'].unique())
-    opcoes_regiao = ["TODAS AS REGIÕES"] + lista_regioes
-    regiao_selecionada = st.sidebar.selectbox("Selecione a Região:", options=opcoes_regiao)
+    lista_divisoes = sorted(df_merged[coluna_divisao_principal].unique())
+    divisao_selecionada = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + lista_divisoes)
 
-    lista_divisoes = sorted(df[coluna_divisao_principal].unique())
-    opcoes_divisao = ["TODAS AS DIVISÕES"] + lista_divisoes
-    divisao_selecionada = st.sidebar.selectbox("Selecione a Divisão:", options=opcoes_divisao)
-
-    df_filtrado = df.copy()
+    df_filtrado = df_merged.copy()
     if regiao_selecionada != "TODAS AS REGIÕES":
         df_filtrado = df_filtrado[df_filtrado['Região'] == regiao_selecionada]
     if divisao_selecionada != "TODAS AS DIVISÕES":
         df_filtrado = df_filtrado[df_filtrado[coluna_divisao_principal] == divisao_selecionada]
-
-    st.image(LOGO_URL, width=200)
-    st.title("Dashboard de Análise de Inadimplência")
-    st.markdown(f"**Exibindo dados para:** Região: `{regiao_selecionada}` | Divisão: `{divisao_selecionada}`")
 
     hoje = datetime.now()
     df_filtrado["Dias de atraso"] = (hoje - df_filtrado["Vencimento líquido"]).dt.days
@@ -113,70 +115,23 @@ if not df_original.empty and not df_regiao.empty:
     df_inad = df_filtrado[df_filtrado["Dias de atraso"] >= 1].copy()
     df_vencer = df_filtrado[df_filtrado["Dias de atraso"] <= 0].copy()
 
-    if df_inad.empty:
-        st.warning("Não há dados de inadimplência para a seleção aplicada.")
-        st.stop()
-
     total_inad = df_inad["Montante em moeda interna"].sum()
     total_vencer = df_vencer["Montante em moeda interna"].sum()
     total_geral = total_inad + total_vencer
 
+    # Título e indicadores
+    st.image(LOGO_URL, width=200)
+    st.title("Dashboard de Análise de Inadimplência")
+    st.markdown(f"**Exibindo dados para:** Região: `{regiao_selecionada}` | Divisão: `{divisao_selecionada}`")
+
     st.markdown("### Indicadores Gerais")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Valor Total Inadimplente", f"R$ {total_inad/1_000_000:,.1f} MM")
-    col2.metric("Valor Total à Vencer", f"R$ {total_vencer/1_000_000:,.1f} MM")
-    col3.metric("Valor Total Contas a Receber", f"R$ {total_geral/1_000_000:,.1f} MM")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Soma bruta planilha", f"R$ {soma_bruta_planilha:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    col2.metric("Valor Total Inadimplente", f"R$ {total_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    col3.metric("Valor Total à Vencer", f"R$ {total_vencer:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    col4.metric("Valor Total Contas a Receber", f"R$ {total_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    graf_col1, graf_col2 = st.columns(2)
-    with graf_col1:
-        st.markdown("##### Inadimplência por Exercício")
-        df_outros_anos = df_inad[df_inad['Exercicio'] != '2025'].copy()
-        inad_outros_anos = df_outros_anos.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
-        inad_outros_anos.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
-        df_2025 = df_inad[df_inad['Exercicio'] == '2025'].copy()
-        inad_2025_por_faixa = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
-        inad_2025_por_faixa = inad_2025_por_faixa[inad_2025_por_faixa['Faixa'] != '']
-        inad_2025_por_faixa['Categoria'] = '2025 - ' + inad_2025_por_faixa['Faixa']
-        inad_2025_por_faixa.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
-        df_grafico = pd.concat([inad_outros_anos, inad_2025_por_faixa[['Categoria', 'Valor']]], ignore_index=True)
-        if not df_grafico.empty:
-            df_grafico = df_grafico.sort_values('Categoria')
-            color_map = {cat: '#EA4335' for cat in inad_outros_anos['Categoria'].unique()}
-            cores_2025 = ['#FFC107', '#FF9800', '#F57C00']
-            categorias_2025 = sorted(inad_2025_por_faixa['Categoria'].unique())
-            for i, cat in enumerate(categorias_2025):
-                color_map[cat] = cores_2025[i % len(cores_2025)]
-            fig_exercicio = px.bar(df_grafico, x='Categoria', y='Valor',
-                                   text=df_grafico['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
-                                   color='Categoria',
-                                   color_discrete_map=color_map)
-            fig_exercicio.update_layout(title='Detalhe por Exercício e Faixa (2025)', xaxis_title=None,
-                                        yaxis_title="Valor (R$)", showlegend=False, title_font_size=16, height=400)
-            fig_exercicio.update_traces(textposition='outside')
-            st.plotly_chart(fig_exercicio, use_container_width=True)
-
-    with graf_col2:
-        st.markdown("##### Inadimplência por Região (3D Simulado)")
-        inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
-        fig_regiao = px.pie(
-            inad_por_regiao,
-            names='Região',
-            values='Montante em moeda interna',
-            title='Participação por Região',
-            hole=0.2
-        )
-        fig_regiao.update_traces(
-            textposition='inside',
-            textinfo='percent+label',
-            pull=[0.05] * len(inad_por_regiao)
-        )
-        fig_regiao.update_layout(title_font_size=16, height=400)
-        st.plotly_chart(fig_regiao, use_container_width=True)
-
-    st.markdown("<hr>", unsafe_allow_html=True)
-
+    # Quadro detalhado
     st.markdown("### Quadro Detalhado de Inadimplência")
     pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"],
                            values="Montante em moeda interna", columns="Prazo",
@@ -190,16 +145,30 @@ if not df_original.empty and not df_regiao.empty:
         use_container_width=True
     )
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+    # Gráfico de pizza
+    st.markdown("### Inadimplência por Região (3D Simulado)")
+    inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
+    fig_regiao = px.pie(
+        inad_por_regiao,
+        names='Região',
+        values='Montante em moeda interna',
+        title='Participação por Região',
+        hole=0.2
+    )
+    fig_regiao.update_traces(
+        textposition='inside',
+        textinfo='percent+label',
+        pull=[0.05] * len(inad_por_regiao)
+    )
+    fig_regiao.update_layout(title_font_size=16, height=400)
+    st.plotly_chart(fig_regiao, use_container_width=True)
 
+    # Resumo por divisão
     with st.expander("Clique para ver o Resumo por Divisão"):
-        st.markdown("##### Inadimplência Agregada por Divisão")
         resumo_divisao = df_inad.groupby(coluna_divisao_principal)['Montante em moeda interna'].sum().reset_index()
         resumo_divisao.rename(columns={coluna_divisao_principal: 'Divisão', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
         resumo_divisao = resumo_divisao.sort_values(by='Valor Inadimplente', ascending=False).reset_index(drop=True)
-        resumo_divisao['Valor Inadimplente'] = resumo_divisao['Valor Inadimplente'].apply(
-            lambda x: f'R$ {x:,.2f}'.replace(",", "X").replace(".", ",").replace("X", ".")
-        )
+        resumo_divisao['Valor Inadimplente'] = resumo_divisao['Valor Inadimplente'].apply(format_currency)
         st.dataframe(resumo_divisao, use_container_width=True)
 
 else:
