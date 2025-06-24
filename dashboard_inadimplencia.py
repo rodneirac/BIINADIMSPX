@@ -88,7 +88,6 @@ if not df_original.empty and not df_regiao.empty:
     df_filtrado["Faixa"] = df_filtrado.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
     df_filtrado["Prazo"] = df_filtrado["Dias de atraso"].apply(classifica_prazo)
     
-    # Definição do df_inad que será usado em todo o restante do dashboard
     df_inad = df_filtrado[df_filtrado["Dias de atraso"] >= 0].copy()
     df_vencer = df_filtrado[df_filtrado["Dias de atraso"] < 0].copy()
 
@@ -158,10 +157,11 @@ if not df_original.empty and not df_regiao.empty:
         else:
             resumo_divisao['Representatividade (%)'] = 0
         resumo_divisao = resumo_divisao.sort_values(by='Valor_Inadimplente', ascending=False)
-        st.dataframe(resumo_divisao.style.format({
-            'Valor_Inadimplente': 'R$ {:,.2f}',
-            'Representatividade (%)': '{:.2f}%'
-        }), use_container_width=True)
+        
+        # NOVO: Formatação segura dos dados para exibição
+        resumo_divisao['Valor_Inadimplente'] = resumo_divisao['Valor_Inadimplente'].map('R$ {:,.2f}'.format)
+        resumo_divisao['Representatividade (%)'] = resumo_divisao['Representatividade (%)'].map('{:.2f}%'.format)
+        st.dataframe(resumo_divisao, use_container_width=True)
 
     with st.expander("Clique para ver o Resumo por Cliente"):
         st.markdown("##### Maiores Devedores (Top 20 Clientes)")
@@ -175,10 +175,11 @@ if not df_original.empty and not df_regiao.empty:
         else:
             resumo_cliente['Representatividade (%)'] = 0
         resumo_cliente = resumo_cliente.sort_values(by='Valor_Inadimplente', ascending=False).head(20)
-        st.dataframe(resumo_cliente.style.format({
-            'Valor_Inadimplente': 'R$ {:,.2f}',
-            'Representatividade (%)': '{:.2f}%'
-        }), use_container_width=True)
+        
+        # NOVO: Formatação segura dos dados para exibição
+        resumo_cliente['Valor_Inadimplente'] = resumo_cliente['Valor_Inadimplente'].map('R$ {:,.2f}'.format)
+        resumo_cliente['Representatividade (%)'] = resumo_cliente['Representatividade (%)'].map('{:.2f}%'.format)
+        st.dataframe(resumo_cliente, use_container_width=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
