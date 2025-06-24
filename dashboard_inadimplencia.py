@@ -122,7 +122,6 @@ if not df_original.empty and not df_regiao.empty:
 
     st.markdown("<hr>", unsafe_allow_html=True)
     
-    # --- SEÇÃO DE GRÁFICOS (CÓDIGO COMPLETO REINSERIDO) ---
     graf_col1, graf_col2 = st.columns(2)
     with graf_col1:
         st.markdown("##### Inadimplência por Exercício")
@@ -153,24 +152,30 @@ if not df_original.empty and not df_regiao.empty:
         fig_pie = px.pie(inad_por_regiao, names='Região', values='Montante em moeda interna', title='Participação por Região', hole=.3)
         fig_pie.update_traces(textposition='inside', textinfo='percent+label')
         fig_pie.update_layout(title_font_size=16, height=400)
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
     
-    # --- RESUMO SIMPLES POR DIVISÃO ---
-    with st.expander("Clique para ver o Resumo por Divisão"):
-        st.markdown("##### Inadimplência Agregada por Divisão")
-        resumo_divisao = df_inad.groupby(coluna_divisao_principal)['Montante em moeda interna'].sum().reset_index()
-        resumo_divisao.rename(columns={coluna_divisao_principal: 'Divisão', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
-        resumo_divisao = resumo_divisao.sort_values(by='Valor Inadimplente', ascending=False)
-        st.dataframe(resumo_divisao, use_container_width=True)
-    
-    st.markdown("<hr>", unsafe_allow_html=True)
-    
+    # --- Tabela Pivot ---
     st.markdown("### Quadro Detalhado de Inadimplência")
     pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"], values="Montante em moeda interna", columns="Prazo", aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
     def format_currency(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     st.dataframe(pivot.style.format({col: format_currency for col in pivot.columns if col not in ["Exercicio", "Faixa"]}).set_properties(**{"text-align": "center"}), use_container_width=True)
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    # --- RESUMO POR DIVISÃO (NOVA POSIÇÃO E FORMATAÇÃO) ---
+    with st.expander("Clique para ver o Resumo por Divisão"):
+        st.markdown("##### Inadimplência Agregada por Divisão")
+        
+        resumo_divisao = df_inad.groupby(coluna_divisao_principal)['Montante em moeda interna'].sum().reset_index()
+        resumo_divisao.rename(columns={coluna_divisao_principal: 'Divisão', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
+        resumo_divisao = resumo_divisao.sort_values(by='Valor Inadimplente', ascending=False)
+        
+        # Formata o valor em milhares (k)
+        resumo_divisao['Valor Inadimplente'] = (resumo_divisao['Valor Inadimplente'] / 1000).map('R$ {:,.1f}k'.format)
+        
+        st.dataframe(resumo_divisao, use_container_width=True)
 
 else:
     st.error("Dados não disponíveis.")
