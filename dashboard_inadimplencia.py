@@ -125,7 +125,6 @@ if not df_original.empty and not df_regiao.empty:
     graf_col1, graf_col2 = st.columns(2)
     with graf_col1:
         st.markdown("##### Inadimplência por Exercício")
-        # (código do gráfico de barras)
         df_outros_anos = df_inad[df_inad['Exercicio'] != '2025'].copy()
         inad_outros_anos = df_outros_anos.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
         inad_outros_anos.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
@@ -149,7 +148,6 @@ if not df_original.empty and not df_regiao.empty:
             
     with graf_col2:
         st.markdown("##### Inadimplência por Região")
-        # (código do gráfico de pizza)
         inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
         fig_pie = px.pie(inad_por_regiao, names='Região', values='Montante em moeda interna', title='Participação por Região', hole=.3)
         fig_pie.update_traces(textposition='inside', textinfo='percent+label')
@@ -163,19 +161,18 @@ if not df_original.empty and not df_regiao.empty:
     def format_currency(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     
     # --- CORREÇÃO IMPORTANTE APLICADA AQUI ---
-    # Substituindo o método .set_properties() que causa o erro
+    # Substituindo o método .set_properties() que causa o erro.
     def center_align(s):
         return 'text-align: center'
         
     st.dataframe(
         pivot.style.format({col: format_currency for col in pivot.columns if col not in ["Exercicio", "Faixa"]})
-             .map(center_align), # Usamos .map() para aplicar o estilo de centralização
+             .map(center_align), # Usamos .map() para aplicar o estilo de centralização.
         use_container_width=True
     )
-    # --- FIM DA CORREÇÃO ---
     
+    # --- RESUMO POR DIVISÃO NO FINAL ---
     st.markdown("<hr>", unsafe_allow_html=True)
-    
     with st.expander("Clique para ver o Resumo por Divisão"):
         st.markdown("##### Inadimplência Agregada por Divisão")
         resumo_divisao = df_inad.groupby(coluna_divisao_principal)['Montante em moeda interna'].sum().reset_index()
