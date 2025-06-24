@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import requests
@@ -97,7 +98,7 @@ if not df_original.empty and not df_regiao.empty:
     st.title("Dashboard de Análise de Inadimplência")
     st.markdown(f"**Exibindo dados para:** `{regiao_selecionada}`")
 
-    hoje = pd.Timestamp.today()
+    hoje = datetime.now()
     df_filtrado["Dias de atraso"] = (hoje - df_filtrado["Vencimento líquido"]).dt.days
     df_filtrado["Exercicio"] = df_filtrado["Data do documento"].apply(classifica_exercicio)
     df_filtrado["Faixa"] = df_filtrado.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
@@ -160,19 +161,19 @@ if not df_original.empty and not df_regiao.empty:
     pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"], values="Montante em moeda interna", columns="Prazo", aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
     def format_currency(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     
-    # --- CORREÇÃO IMPORTANTE APLICADA AQUI ---
-    # Substituindo o método .set_properties() que causa o erro.
+    # --- CORREÇÃO DO MÉTODO DE ESTILO DA TABELA PIVOT ---
     def center_align(s):
         return 'text-align: center'
         
     st.dataframe(
         pivot.style.format({col: format_currency for col in pivot.columns if col not in ["Exercicio", "Faixa"]})
-             .map(center_align), # Usamos .map() para aplicar o estilo de centralização.
+             .map(center_align), # Usando .map() que é compatível
         use_container_width=True
     )
     
-    # --- RESUMO POR DIVISÃO NO FINAL ---
     st.markdown("<hr>", unsafe_allow_html=True)
+    
+    # --- RESUMO POR DIVISÃO NO FINAL ---
     with st.expander("Clique para ver o Resumo por Divisão"):
         st.markdown("##### Inadimplência Agregada por Divisão")
         resumo_divisao = df_inad.groupby(coluna_divisao_principal)['Montante em moeda interna'].sum().reset_index()
