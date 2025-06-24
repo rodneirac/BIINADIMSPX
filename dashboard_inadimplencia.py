@@ -83,19 +83,30 @@ if not df_original.empty and not df_regiao.empty:
     df = pd.merge(df_original, df_regiao, on=coluna_divisao_principal, how="left")
     df['Região'] = df['Região'].fillna('Não definida')
 
+    # --- SIDEBAR COM FILTROS ---
     st.sidebar.title("Filtros")
+
+    # Filtro de Região
     lista_regioes = sorted(df['Região'].unique())
-    opcoes_filtro = ["TODAS AS REGIÕES"] + lista_regioes
-    regiao_selecionada = st.sidebar.selectbox("Selecione a Região:", options=opcoes_filtro)
+    opcoes_regiao = ["TODAS AS REGIÕES"] + lista_regioes
+    regiao_selecionada = st.sidebar.selectbox("Selecione a Região:", options=opcoes_regiao)
 
-    if regiao_selecionada == "TODAS AS REGIÕES":
-        df_filtrado = df.copy()
-    else:
-        df_filtrado = df[df['Região'] == regiao_selecionada].copy()
+    # Filtro de Divisão
+    lista_divisoes = sorted(df[coluna_divisao_principal].unique())
+    opcoes_divisao = ["TODAS AS DIVISÕES"] + lista_divisoes
+    divisao_selecionada = st.sidebar.selectbox("Selecione a Divisão:", options=opcoes_divisao)
 
+    # Aplicar filtros
+    df_filtrado = df.copy()
+    if regiao_selecionada != "TODAS AS REGIÕES":
+        df_filtrado = df_filtrado[df_filtrado['Região'] == regiao_selecionada]
+    if divisao_selecionada != "TODAS AS DIVISÕES":
+        df_filtrado = df_filtrado[df_filtrado[coluna_divisao_principal] == divisao_selecionada]
+
+    # --- TÍTULO E INFORMAÇÃO ---
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
-    st.markdown(f"**Exibindo dados para:** `{regiao_selecionada}`")
+    st.markdown(f"**Exibindo dados para:** Região: `{regiao_selecionada}` | Divisão: `{divisao_selecionada}`")
 
     hoje = datetime.now()
     df_filtrado["Dias de atraso"] = (hoje - df_filtrado["Vencimento líquido"]).dt.days
@@ -107,9 +118,9 @@ if not df_original.empty and not df_regiao.empty:
     df_vencer = df_filtrado[df_filtrado["Dias de atraso"] < 0].copy()
 
     if df_inad.empty:
-        st.warning(f"Não há dados de inadimplência para a seleção '{regiao_selecionada}'.")
+        st.warning("Não há dados de inadimplência para a seleção aplicada.")
         st.stop()
-    
+
     total_inad = df_inad["Montante em moeda interna"].sum()
     total_vencer = df_vencer["Montante em moeda interna"].sum()
     total_geral = total_inad + total_vencer
@@ -121,7 +132,8 @@ if not df_original.empty and not df_regiao.empty:
     col3.metric("Valor Total Contas a Receber", f"R$ {total_geral/1_000_000:,.1f} MM")
 
     st.markdown("<hr>", unsafe_allow_html=True)
-    
+
+    # Gráficos
     graf_col1, graf_col2 = st.columns(2)
     with graf_col1:
         st.markdown("##### Inadimplência por Exercício")
@@ -149,7 +161,7 @@ if not df_original.empty and not df_regiao.empty:
                                         yaxis_title="Valor (R$)", showlegend=False, title_font_size=16, height=400)
             fig_exercicio.update_traces(textposition='outside')
             st.plotly_chart(fig_exercicio, use_container_width=True)
-            
+
     with graf_col2:
         st.markdown("##### Inadimplência por Região")
         inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
@@ -160,7 +172,8 @@ if not df_original.empty and not df_regiao.empty:
         st.plotly_chart(fig_regiao, use_container_width=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
-    
+
+    # Tabela detalhada
     st.markdown("### Quadro Detalhado de Inadimplência")
     pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"],
                            values="Montante em moeda interna", columns="Prazo",
@@ -173,9 +186,9 @@ if not df_original.empty and not df_regiao.empty:
         pivot.style.format({col: format_currency for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
         use_container_width=True
     )
-    
+
     st.markdown("<hr>", unsafe_allow_html=True)
-    
+
     with st.expander("Clique para ver o Resumo por Divisão"):
         st.markdown("##### Inadimplência Agregada por Divisão")
         resumo_divisao = df_inad.groupby(coluna_divisao_principal)['Montante em moeda interna'].sum().reset_index()
