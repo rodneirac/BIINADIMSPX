@@ -8,7 +8,7 @@ from io import BytesIO
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
-# --- URLs E CONSTANTES DO GITHUB ---
+# --- URLs E CONSTANTES ---
 OWNER = "rodneirac"
 REPO = "BIINADIMSPX"
 ARQUIVO_DADOS = "INADIMATUAL.XLSX"
@@ -18,7 +18,7 @@ URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DAD
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
-# --- FUNÇÕES DE CARREGAMENTO ---
+# --- FUNÇÕES ---
 @st.cache_data(ttl=3600)
 def load_data(url):
     response = requests.get(url)
@@ -80,16 +80,13 @@ if not df_original.empty and not df_regiao.empty:
     df_original[coluna_divisao_principal] = df_original[coluna_divisao_principal].astype(str)
     df_regiao[coluna_divisao_regiao] = df_regiao[coluna_divisao_regiao].astype(str)
 
-    # ✅ Remove divisões duplicadas no arquivo de regiões para evitar duplicação no merge
     df_regiao = df_regiao.drop_duplicates(subset=[coluna_divisao_regiao])
-
     df_merged = pd.merge(df_original, df_regiao, on=coluna_divisao_principal, how="left")
 
     soma_apos_merge = df_merged["Montante em moeda interna"].sum()
-
     if abs(soma_bruta_planilha - soma_apos_merge) > 1:
-        st.warning(f"Atenção: A soma do montante após o merge (R$ {soma_apos_merge:,.2f}) é diferente da soma da planilha (R$ {soma_bruta_planilha:,.2f}). Verifique os dados.")
-    
+        st.warning(f"Atenção: A soma do montante após o merge (R$ {soma_apos_merge:,.2f}) difere da planilha (R$ {soma_bruta_planilha:,.2f}).")
+
     # Filtros
     st.sidebar.title("Filtros")
     lista_regioes = sorted(df_merged['Região'].fillna('Não definida').unique())
@@ -117,6 +114,7 @@ if not df_original.empty and not df_regiao.empty:
     total_vencer = df_vencer["Montante em moeda interna"].sum()
     total_geral = total_inad + total_vencer
 
+    # Título e indicadores
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
     st.markdown(f"**Exibindo dados para:** Região: `{regiao_selecionada}` | Divisão: `{divisao_selecionada}`")
@@ -142,7 +140,38 @@ if not df_original.empty and not df_regiao.empty:
         use_container_width=True
     )
 
-    # Gráfico de pizza
+    # Gráfico barras
+    st.markdown("### Inadimplência por Exercício")
+    df_outros_anos = df_inad[df_inad['Exercicio'] != '2025'].copy()
+    inad_outros_anos = df_outros_anos.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
+    inad_outros_anos.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
+
+    df_2025 = df_inad[df_inad['Exercicio'] == '2025'].copy()
+    inad_2025_por_faixa = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
+    inad_2025_por_faixa = inad_2025_por_faixa[inad_2025_por_faixa['Faixa'] != '']
+    inad_2025_por_faixa['Categoria'] = '2025 - ' + inad_2025_por_faixa['Faixa']
+    inad_2025_por_faixa.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
+
+    df_grafico = pd.concat([inad_outros_anos, inad_2025_por_faixa[['Categoria', 'Valor']]], ignore_index=True)
+
+    if not df_grafico.empty:
+        color_map = {cat: '#EA4335' for cat in inad_outros_anos['Categoria'].unique()}
+        cores_2025 = ['#FFC107', '#FF9800', '#F57C00']
+        for i, cat in enumerate(sorted(inad_2025_por_faixa['Categoria'].unique())):
+            color_map[cat] = cores_2025[i % len(cores_2025)]
+        
+        fig_exercicio = px.bar(df_grafico, x='Categoria', y='Valor',
+                               text=df_grafico['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
+                               color='Categoria', color_discrete_map=color_map)
+        fig_exercicio.update_layout(title='Detalhe por Exercício e Faixa (2025)',
+                                    xaxis_title=None, yaxis_title="Valor (R$)",
+                                    showlegend=False, title_font_size=16, height=400)
+        fig_exercicio.update_traces(textposition='outside')
+        st.plotly_chart(fig_exercicio, use_container_width=True)
+    else:
+        st.info("Sem dados para gerar o gráfico de barras neste filtro.")
+
+    # Gráfico pizza
     st.markdown("### Inadimplência por Região (3D Simulado)")
     inad_por_regiao = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
     fig_regiao = px.pie(
@@ -152,15 +181,11 @@ if not df_original.empty and not df_regiao.empty:
         title='Participação por Região',
         hole=0.2
     )
-    fig_regiao.update_traces(
-        textposition='inside',
-        textinfo='percent+label',
-        pull=[0.05] * len(inad_por_regiao)
-    )
+    fig_regiao.update_traces(textposition='inside', textinfo='percent+label', pull=[0.05]*len(inad_por_regiao))
     fig_regiao.update_layout(title_font_size=16, height=400)
     st.plotly_chart(fig_regiao, use_container_width=True)
 
-    # Resumo por divisão
+    # Resumo divisão
     with st.expander("Clique para ver o Resumo por Divisão"):
         resumo_divisao = df_inad.groupby(coluna_divisao_principal)['Montante em moeda interna'].sum().reset_index()
         resumo_divisao.rename(columns={coluna_divisao_principal: 'Divisão', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
