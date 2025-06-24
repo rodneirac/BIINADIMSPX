@@ -5,7 +5,6 @@ import plotly.express as px
 from datetime import datetime
 from io import BytesIO
 
-# --- CONFIGURAÇÃO ---
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
 OWNER = "rodneirac"
@@ -17,7 +16,6 @@ URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DAD
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
-# --- BOTÃO PARA RECARREGAR ---
 if st.button("🔄 Recarregar dados"):
     st.cache_data.clear()
     st.rerun()
@@ -134,6 +132,36 @@ if not df_original.empty and not df_regiao.empty:
         pivot.style.format({col: fmt for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
         use_container_width=True
     )
+
+    # Gráfico de barras com cores antigas
+    st.markdown("### Inadimplência por Exercício")
+    df_outros = df_inad[df_inad['Exercicio'] != '2025']
+    df_outros = df_outros.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
+    df_outros.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
+
+    df_2025 = df_inad[df_inad['Exercicio'] == '2025']
+    df_2025 = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
+    df_2025 = df_2025[df_2025['Faixa'] != '']
+    df_2025['Categoria'] = '2025 - ' + df_2025['Faixa']
+    df_2025.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
+
+    df_graf = pd.concat([df_outros, df_2025[['Categoria', 'Valor']]], ignore_index=True)
+
+    if not df_graf.empty:
+        color_map = {cat: '#EA4335' for cat in df_outros['Categoria'].unique()}
+        cores_2025 = ['#FFC107', '#FF9800', '#F57C00']
+        categorias_2025 = sorted(df_2025['Categoria'].unique())
+        for i, cat in enumerate(categorias_2025):
+            color_map[cat] = cores_2025[i % len(cores_2025)]
+
+        fig_bar = px.bar(df_graf, x='Categoria', y='Valor',
+                         text=df_graf['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
+                         color='Categoria', color_discrete_map=color_map)
+        fig_bar.update_layout(title='Detalhe por Exercício e Faixa (2025)', showlegend=False, height=400)
+        fig_bar.update_traces(textposition='outside')
+        st.plotly_chart(fig_bar, use_container_width=True)
+    else:
+        st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
     st.markdown("### Inadimplência por Região (3D Simulado)")
     df_pie = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
