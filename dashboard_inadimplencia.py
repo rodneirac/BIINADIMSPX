@@ -87,19 +87,23 @@ if not df_original.empty and not df_regiao.empty:
     if abs(soma_bruta_planilha - soma_apos_merge) > 1:
         st.warning(f"Soma após merge: R$ {soma_apos_merge:,.2f} difere do bruto: R$ {soma_bruta_planilha:,.2f}")
 
+    df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
+
     st.sidebar.title("Filtros")
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
+    exercicio_sel = st.sidebar.selectbox("Selecione o Exercício:", ["TODOS OS EXERCÍCIOS"] + sorted(df_merged['Exercicio'].unique()))
 
     df_filt = df_merged.copy()
     if regiao_sel != "TODAS AS REGIÕES":
         df_filt = df_filt[df_filt['Região'] == regiao_sel]
     if divisao_sel != "TODAS AS DIVISÕES":
         df_filt = df_filt[df_filt[col_div_princ] == divisao_sel]
+    if exercicio_sel != "TODOS OS EXERCÍCIOS":
+        df_filt = df_filt[df_filt['Exercicio'] == exercicio_sel]
 
     hoje = datetime.now()
     df_filt["Dias de atraso"] = (hoje - df_filt["Vencimento líquido"]).dt.days
-    df_filt["Exercicio"] = df_filt["Data do documento"].apply(classifica_exercicio)
     df_filt["Faixa"] = df_filt.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
     df_filt["Prazo"] = df_filt["Dias de atraso"].apply(classifica_prazo)
 
@@ -112,7 +116,7 @@ if not df_original.empty and not df_regiao.empty:
 
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
-    st.markdown(f"**Exibindo dados para:** Região: `{regiao_sel}` | Divisão: `{divisao_sel}`")
+    st.markdown(f"**Exibindo dados para:** Região: `{regiao_sel}` | Divisão: `{divisao_sel}` | Exercício: `{exercicio_sel}`")
 
     st.markdown("### Indicadores Gerais")
     c1, c2, c3, c4 = st.columns(4)
@@ -133,7 +137,6 @@ if not df_original.empty and not df_regiao.empty:
         use_container_width=True
     )
 
-    # Gráfico de barras com cores antigas
     st.markdown("### Inadimplência por Exercício")
     df_outros = df_inad[df_inad['Exercicio'] != '2025']
     df_outros = df_outros.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
