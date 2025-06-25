@@ -181,5 +181,15 @@ if not df_original.empty and not df_regiao.empty:
         resumo['Valor Inadimplente'] = resumo['Valor Inadimplente'].apply(fmt)
         st.dataframe(resumo, use_container_width=True)
 
+    with st.expander("Clique para ver o Resumo por Cliente"):
+        if 'Nome do cliente' in df_inad.columns:
+            resumo_cli = df_inad.groupby('Nome do cliente')['Montante em moeda interna'].sum().reset_index()
+            resumo_cli.rename(columns={'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
+            resumo_cli = resumo_cli.sort_values(by='Valor Inadimplente', ascending=False)
+            resumo_cli['Valor Inadimplente'] = resumo_cli['Valor Inadimplente'].apply(fmt)
+            st.dataframe(resumo_cli, use_container_width=True)
+        else:
+            st.warning("Coluna 'Nome do cliente' não encontrada na base de dados.")
+
 else:
     st.error("Dados não disponíveis.")
