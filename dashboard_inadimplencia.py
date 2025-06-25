@@ -1,98 +1,148 @@
 import streamlit as st
 import pandas as pd
+import requests
 import plotly.express as px
-from PIL import Image
 from datetime import datetime
+from io import BytesIO
 
-# Logo
-logo = Image.open("logo_supermix.png")
-st.set_page_config(layout="wide")
-st.image(logo, width=120)
+st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
-st.markdown("""<h1 style='font-size: 36px;'>Dashboard de Análise de Inadimplência</h1>""", unsafe_allow_html=True)
+OWNER = "rodneirac"
+REPO = "BIINADIMSPX"
+ARQUIVO_DADOS = "INADIMATUAL.XLSX"
+ARQUIVO_REGIAO = "REGIAO.xlsx"
 
-# Função para carregar dados
-def carregar_dados():
-    url = "https://raw.githubusercontent.com/rodnei0/dashboard_inadimplencia/main/INADIMATUAL.CSV"
-    df = pd.read_csv(url, sep=";", decimal=",", encoding='latin1')
-    df["Data Vencimento"] = pd.to_datetime(df["Data Vencimento"], errors='coerce')
-    df = df[df["Data Vencimento"] < pd.to_datetime("today")]
-    df["Montante em moeda interna"] = df["Montante em moeda interna"].astype(float)
-    return df
+URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DADOS}"
+URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
+LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
-# Botão de recarregar dados
 if st.button("🔄 Recarregar dados"):
     st.cache_data.clear()
     st.rerun()
 
-# Carrega dados com cache
-df_base = st.cache_data(ttl=3600)(carregar_dados)()
-df = df_base.copy()
+@st.cache_data(ttl=3600)
+def load_data(url):
+    response = requests.get(url)
+    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
+    df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
+    df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
+    return df
 
-# Preparando colunas e agrupamentos
-df["Exercicio"] = df["Ano Vencimento"].astype(str)
-df.loc[df["Exercicio"] == "2021", "Exercicio"] = "2021(Acumulado)"
-df["Faixa"] = df["Faixa Atraso"].fillna("")
+@st.cache_data(ttl=3600)
+def load_region_data(url):
+    response = requests.get(url)
+    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
+    return df
 
-# Filtros
-col_reg, col_div, col_ano = st.sidebar.columns(1), st.sidebar.columns(1), st.sidebar.columns(1)
-regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df['Região'].dropna().unique()))
-divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df['Divisao'].dropna().unique()))
-exercicio_sel = st.sidebar.selectbox("Selecione o Exercício:", ["TODOS OS EXERCÍCIOS"] + sorted(df['Exercicio'].unique()))
+def get_division_column_name(df):
+    if 'Divisao' in df.columns:
+        return 'Divisao'
+    elif 'Divisão' in df.columns:
+        return 'Divisão'
+    else:
+        return None
 
-# Aplica os filtros
-if regiao_sel != "TODAS AS REGIÕES":
-    df = df[df['Região'] == regiao_sel]
-if divisao_sel != "TODAS AS DIVISÕES":
-    df = df[df['Divisao'] == divisao_sel]
-if exercicio_sel != "TODOS OS EXERCÍCIOS":
-    df = df[df['Exercicio'] == exercicio_sel]
+def classifica_exercicio(data):
+    if pd.isnull(data): return "Sem data"
+    ano = data.year
+    if ano <= 2021: return "2021(Acumulado)"
+    elif ano == 2022: return "2022"
+    elif ano == 2023: return "2023"
+    elif ano == 2024: return "2024"
+    elif ano == 2025: return "2025"
+    else: return "Futuro"
 
-# KPIs
-total_inad = df["Montante em moeda interna"].sum()
-total_curto = df[df["Faixa"] == "Até 30 dias"]["Montante em moeda interna"].sum()
-total_longo = df[~df["Faixa"].isin(["Até 30 dias"])] ["Montante em moeda interna"].sum()
+def classifica_faixa(exercicio, dias):
+    if exercicio == "2025":
+        if dias <= 30: return "Até 30 dias"
+        elif dias <= 60: return "entre 31 e 60 dias"
+        else: return "mais de 61 dias"
+    return ""
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Valor Total Inadimplente", f"R$ {total_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-col2.metric("Valor Total Curto Prazo", f"R$ {total_curto:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-col3.metric("Valor Total a Vencer", "R$ 0,00")
-col4.metric("Valor Total Contas a Receber", f"R$ {(total_inad):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+def classifica_prazo(dias):
+    if dias <= 60: return "Curto Prazo"
+    else: return "Longo Prazo"
 
-# Quadro Detalhado
-st.markdown("## Quadro Detalhado de Inadimplência")
-df_quadro = df.copy()
-df_quadro = df_quadro.groupby(["Exercicio", "Faixa"]).agg({"Montante em moeda interna": "sum"}).reset_index()
-df_quadro["Curto Prazo"] = df_quadro.apply(lambda x: x["Montante em moeda interna"] if x["Faixa"] == "Até 30 dias" else 0, axis=1)
-df_quadro["Longo Prazo"] = df_quadro.apply(lambda x: x["Montante em moeda interna"] if x["Faixa"] != "Até 30 dias" else 0, axis=1)
-df_quadro_final = df_quadro.groupby("Exercicio").agg({"Curto Prazo": "sum", "Longo Prazo": "sum"}).reset_index()
-df_quadro_final["Total Geral"] = df_quadro_final["Curto Prazo"] + df_quadro_final["Longo Prazo"]
-df_quadro_final.loc[len(df_quadro_final)] = ["Total Geral"] + df_quadro_final[["Curto Prazo", "Longo Prazo", "Total Geral"]].sum().tolist()
+df_original = load_data(URL_DADOS)
+df_regiao = load_region_data(URL_REGIAO)
 
-st.dataframe(df_quadro_final.style.format({
-    "Curto Prazo": "R$ {:,.2f}",
-    "Longo Prazo": "R$ {:,.2f}",
-    "Total Geral": "R$ {:,.2f}"
-}), use_container_width=True)
+if not df_original.empty and not df_regiao.empty:
+    soma_bruta_planilha = df_original["Montante em moeda interna"].sum()
 
-# Gráfico de barras
-st.markdown("## Inadimplência por Exercício")
-df_bar = df.groupby("Exercicio")["Montante em moeda interna"].sum().reset_index().sort_values("Exercicio")
-fig_bar = px.bar(df_bar, x="Exercicio", y="Montante em moeda interna", 
-                 labels={"Montante em moeda interna": "Valor (R$)"},
-                 text_auto='.2s',
-                 color_discrete_sequence=["#e74c3c"])
-fig_bar.update_layout(height=400)
-st.plotly_chart(fig_bar, use_container_width=True)
+    col_div_princ = get_division_column_name(df_original)
+    col_div_regiao = get_division_column_name(df_regiao)
 
-# Gráfico de pizza
-st.markdown("## Inadimplência por Região (3D Simulado)")
-df_pizza = df.groupby("Região")["Montante em moeda interna"].sum().reset_index()
-fig_pie = px.pie(df_pizza, values="Montante em moeda interna", names="Região", hole=0.3, height=600, width=800)
-fig_pie.update_traces(textinfo='percent+label', pull=[0.05]*len(df_pizza))
-st.plotly_chart(fig_pie, use_container_width=True)
+    if not col_div_princ or not col_div_regiao:
+        st.error("Erro Crítico: Coluna de divisão não encontrada.")
+        st.stop()
 
-# Resumo por Divisão (expansivo)
-with st.expander("Clique para ver o Resumo por Divisão"):
-    df_div = df.groupby("Divisao")["Montante em moeda interna"].sum().reset_index().sort_values(by="Montante em moeda interna", ascending=False)
-    st.dataframe(df_div.style.format({"Montante em moeda interna": "R$ {:,.2f}"}), use_container_width=True)
+    df_original[col_div_princ] = df_original[col_div_princ].astype(str)
+    df_regiao[col_div_regiao] = df_regiao[col_div_regiao].astype(str)
+
+    df_regiao = df_regiao.drop_duplicates(subset=[col_div_regiao])
+    df_merged = pd.merge(df_original, df_regiao, on=col_div_princ, how="left")
+
+    df_merged["Dias de atraso"] = (datetime.now() - df_merged["Vencimento líquido"]).dt.days
+    df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
+    df_merged["Faixa"] = df_merged.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
+    df_merged["Prazo"] = df_merged["Dias de atraso"].apply(classifica_prazo)
+
+    st.sidebar.title("Filtros")
+    regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
+    divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
+    exercicio_sel = st.sidebar.selectbox("Selecione o Exercício:", ["TODOS OS EXERCÍCIOS"] + sorted(df_merged["Exercicio"].unique()))
+
+    df_filt = df_merged.copy()
+    if regiao_sel != "TODAS AS REGIÕES":
+        df_filt = df_filt[df_filt['Região'] == regiao_sel]
+    if divisao_sel != "TODAS AS DIVISÕES":
+        df_filt = df_filt[df_filt[col_div_princ] == divisao_sel]
+    if exercicio_sel != "TODOS OS EXERCÍCIOS":
+        df_filt = df_filt[df_filt["Exercicio"] == exercicio_sel]
+
+    df_inad = df_filt[df_filt["Dias de atraso"] >= 1].copy()
+    df_venc = df_filt[df_filt["Dias de atraso"] <= 0].copy()
+
+    tot_inad = df_inad["Montante em moeda interna"].sum()
+    tot_venc = df_venc["Montante em moeda interna"].sum()
+    tot_geral = tot_inad + tot_venc
+
+    st.image(LOGO_URL, width=200)
+    st.title("Dashboard de Análise de Inadimplência")
+    st.markdown(f"**Exibindo dados para:** Região: `{regiao_sel}` | Divisão: `{divisao_sel}` | Exercício: `{exercicio_sel}`")
+
+    st.markdown("### Indicadores Gerais")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Soma bruta planilha", f"R$ {soma_bruta_planilha:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    c2.metric("Valor Total Inadimplente", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    c3.metric("Valor Total à Vencer", f"R$ {tot_venc:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    c4.metric("Valor Total Contas a Receber", f"R$ {tot_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+    st.markdown("### Quadro Detalhado de Inadimplência")
+    pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"],
+                           values="Montante em moeda interna", columns="Prazo",
+                           aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
+
+    def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    st.dataframe(
+        pivot.style.format({col: fmt for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
+        use_container_width=True
+    )
+
+    st.markdown("### Inadimplência por Região (3D Simulado)")
+    df_pie = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
+    fig_pie = px.pie(df_pie, names='Região', values='Montante em moeda interna',
+                     title='Participação por Região', hole=0.2)
+    fig_pie.update_traces(textposition='inside', textinfo='percent+label', pull=[0.05]*len(df_pie))
+    fig_pie.update_layout(title_font_size=16, height=600, width=800)
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+    with st.expander("Clique para ver o Resumo por Divisão"):
+        resumo = df_inad.groupby(col_div_princ)['Montante em moeda interna'].sum().reset_index()
+        resumo.rename(columns={col_div_princ: 'Divisão', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
+        resumo = resumo.sort_values(by='Valor Inadimplente', ascending=False)
+        resumo['Valor Inadimplente'] = resumo['Valor Inadimplente'].apply(fmt)
+        st.dataframe(resumo, use_container_width=True)
+
+else:
+    st.error("Dados não disponíveis.")
