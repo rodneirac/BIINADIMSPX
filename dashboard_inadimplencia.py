@@ -43,8 +43,7 @@ def get_division_column_name(df):
         return None
 
 def classifica_exercicio(data):
-    if pd.isnull(data):
-        return "Sem data"
+    if pd.isnull(data): return "Sem data"
     ano = data.year
     if ano <= 2021: return "2021(Acumulado)"
     elif ano == 2022: return "2022"
@@ -83,25 +82,23 @@ if not df_original.empty and not df_regiao.empty:
     df_regiao = df_regiao.drop_duplicates(subset=[col_div_regiao])
     df_merged = pd.merge(df_original, df_regiao, on=col_div_princ, how="left")
 
-    soma_apos_merge = df_merged["Montante em moeda interna"].sum()
-    if abs(soma_bruta_planilha - soma_apos_merge) > 1:
-        st.warning(f"Soma após merge: R$ {soma_apos_merge:,.2f} difere do bruto: R$ {soma_bruta_planilha:,.2f}")
+    df_merged["Dias de atraso"] = (datetime.now() - df_merged["Vencimento líquido"]).dt.days
+    df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
+    df_merged["Faixa"] = df_merged.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
+    df_merged["Prazo"] = df_merged["Dias de atraso"].apply(classifica_prazo)
 
     st.sidebar.title("Filtros")
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
+    exercicio_sel = st.sidebar.selectbox("Selecione o Exercício:", ["TODOS OS EXERCÍCIOS"] + sorted(df_merged["Exercicio"].unique()))
 
     df_filt = df_merged.copy()
     if regiao_sel != "TODAS AS REGIÕES":
         df_filt = df_filt[df_filt['Região'] == regiao_sel]
     if divisao_sel != "TODAS AS DIVISÕES":
         df_filt = df_filt[df_filt[col_div_princ] == divisao_sel]
-
-    hoje = datetime.now()
-    df_filt["Dias de atraso"] = (hoje - df_filt["Vencimento líquido"]).dt.days
-    df_filt["Exercicio"] = df_filt["Data do documento"].apply(classifica_exercicio)
-    df_filt["Faixa"] = df_filt.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
-    df_filt["Prazo"] = df_filt["Dias de atraso"].apply(classifica_prazo)
+    if exercicio_sel != "TODOS OS EXERCÍCIOS":
+        df_filt = df_filt[df_filt["Exercicio"] == exercicio_sel]
 
     df_inad = df_filt[df_filt["Dias de atraso"] >= 1].copy()
     df_venc = df_filt[df_filt["Dias de atraso"] <= 0].copy()
@@ -112,7 +109,7 @@ if not df_original.empty and not df_regiao.empty:
 
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
-    st.markdown(f"**Exibindo dados para:** Região: `{regiao_sel}` | Divisão: `{divisao_sel}`")
+    st.markdown(f"**Exibindo dados para:** Região: `{regiao_sel}` | Divisão: `{divisao_sel}` | Exercício: `{exercicio_sel}`")
 
     st.markdown("### Indicadores Gerais")
     c1, c2, c3, c4 = st.columns(4)
@@ -127,41 +124,10 @@ if not df_original.empty and not df_regiao.empty:
                            aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
 
     def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
     st.dataframe(
         pivot.style.format({col: fmt for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
         use_container_width=True
     )
-
-    # Gráfico de barras com cores antigas
-    st.markdown("### Inadimplência por Exercício")
-    df_outros = df_inad[df_inad['Exercicio'] != '2025']
-    df_outros = df_outros.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
-    df_outros.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
-
-    df_2025 = df_inad[df_inad['Exercicio'] == '2025']
-    df_2025 = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
-    df_2025 = df_2025[df_2025['Faixa'] != '']
-    df_2025['Categoria'] = '2025 - ' + df_2025['Faixa']
-    df_2025.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
-
-    df_graf = pd.concat([df_outros, df_2025[['Categoria', 'Valor']]], ignore_index=True)
-
-    if not df_graf.empty:
-        color_map = {cat: '#EA4335' for cat in df_outros['Categoria'].unique()}
-        cores_2025 = ['#FFC107', '#FF9800', '#F57C00']
-        categorias_2025 = sorted(df_2025['Categoria'].unique())
-        for i, cat in enumerate(categorias_2025):
-            color_map[cat] = cores_2025[i % len(cores_2025)]
-
-        fig_bar = px.bar(df_graf, x='Categoria', y='Valor',
-                         text=df_graf['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
-                         color='Categoria', color_discrete_map=color_map)
-        fig_bar.update_layout(title='Detalhe por Exercício e Faixa (2025)', showlegend=False, height=400)
-        fig_bar.update_traces(textposition='outside')
-        st.plotly_chart(fig_bar, use_container_width=True)
-    else:
-        st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
     st.markdown("### Inadimplência por Região (3D Simulado)")
     df_pie = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
