@@ -222,6 +222,7 @@ if not df_original.empty and not df_regiao.empty:
         resumo['Valor Inadimplente'] = resumo['Valor Inadimplente'].apply(fmt)
         st.dataframe(resumo, use_container_width=True)
 
+    # ------ NOVO BLOCO GRÁFICO AJUSTADO ---------
     with st.expander("Clique para ver o Resumo por Cliente"):
         if 'Nome 1' in df_inad.columns:
             resumo_cli = df_inad.groupby('Nome 1')['Montante em moeda interna'].sum().reset_index()
@@ -233,13 +234,36 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
             st.dataframe(resumo_cli_fmt, use_container_width=True)
 
+            # Top 10 Gráfico em azul-verde e label M/K
             top_n = resumo_cli.head(10)
-            fig_cli = px.bar(top_n.sort_values('Valor Inadimplente'), 
-                             x='Valor Inadimplente', y='Cliente', 
-                             orientation='h', 
-                             text=top_n['% do Total'].apply(lambda x: f"{x:.1f}%"),
-                             title='Top 10 Clientes Inadimplentes')
-            fig_cli.update_layout(height=500, yaxis_title='', xaxis_title='Valor Inadimplente', showlegend=False)
+            def label_mk(valor):
+                if valor >= 1_000_000:
+                    return f"{valor/1_000_000:.1f}M"
+                elif valor >= 1_000:
+                    return f"{valor/1_000:.1f}K"
+                else:
+                    return f"{valor:,.0f}"
+
+            # Cores azul-verde
+            colors = [
+                "#0099cc", "#33cc99", "#00b386", "#00cc99", "#33cccc",
+                "#009966", "#00cc99", "#00b386", "#33cc99", "#0099cc"
+            ]
+            fig_cli = px.bar(
+                top_n.sort_values('Valor Inadimplente'),
+                x='Valor Inadimplente',
+                y='Cliente',
+                orientation='h',
+                text=top_n['Valor Inadimplente'].apply(label_mk),
+                color_discrete_sequence=colors
+            )
+            fig_cli.update_layout(
+                height=500,
+                yaxis_title='',
+                xaxis_title='Valor Inadimplente',
+                showlegend=False,
+                title='Top 10 Clientes Inadimplentes'
+            )
             fig_cli.update_traces(textposition='outside')
             st.plotly_chart(fig_cli, use_container_width=True)
         else:
