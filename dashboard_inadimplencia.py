@@ -83,10 +83,6 @@ if not df_original.empty and not df_regiao.empty:
     df_regiao = df_regiao.drop_duplicates(subset=[col_div_regiao])
     df_merged = pd.merge(df_original, df_regiao, on=col_div_princ, how="left")
 
-    soma_apos_merge = df_merged["Montante em moeda interna"].sum()
-    if abs(soma_bruta_planilha - soma_apos_merge) > 1:
-        st.warning(f"Soma após merge: R$ {soma_apos_merge:,.2f} difere do bruto: R$ {soma_bruta_planilha:,.2f}")
-
     df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
 
     st.sidebar.title("Filtros")
@@ -145,3 +141,5 @@ if not df_original.empty and not df_regiao.empty:
             st.plotly_chart(fig_top10, use_container_width=True)
         else:
             st.warning("Coluna 'Nome 1' (cliente) não encontrada na base de dados.")
+
+    # TODO: Restaurar aqui as demais análises visuais anteriores como Resumo por Divisão, Gráficos por Faixa, Prazo, Região etc.
