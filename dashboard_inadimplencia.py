@@ -4,6 +4,7 @@ import requests
 import plotly.express as px
 from datetime import datetime
 from io import BytesIO
+import time
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
@@ -16,9 +17,19 @@ URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DAD
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
+# Controle de última atualização
+if 'last_reload' not in st.session_state:
+    st.session_state['last_reload'] = None
+
+st.markdown("#### Atualização de Dados")
 if st.button("🔄 Recarregar dados"):
     st.cache_data.clear()
+    st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
     st.rerun()
+st.caption("Clique para buscar os dados mais recentes das planilhas do GitHub. Use sempre que houver atualização dos arquivos fonte.")
+
+if st.session_state['last_reload']:
+    st.success(f"Dados recarregados em {st.session_state['last_reload']}")
 
 @st.cache_data(ttl=3600)
 def load_data(url):
