@@ -135,11 +135,11 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cli['% sobre Total'] = resumo_cli['Representatividade'].apply(lambda x: f"{x:.1%}")
             st.dataframe(resumo_cli[['Cliente', 'Valor Inadimplente', '% sobre Total']], use_container_width=True)
 
-            top10 = resumo_cli.head(10).copy()
-            top10['Valor'] = top10['Valor Inadimplente'].str.replace("R$", "").str.replace(".", "", regex=False).str.replace(",", ".").astype(float)
+            top10 = df_inad.groupby('Nome 1')['Montante em moeda interna'].sum().reset_index()
+            top10.rename(columns={'Nome 1': 'Cliente', 'Montante em moeda interna': 'Valor'}, inplace=True)
+            top10 = top10.sort_values(by='Valor', ascending=False).head(10)
             top10['Texto'] = top10['Valor'].apply(lambda x: f"{x/1_000_000:.1f}M" if x >= 1_000_000 else (f"{x/1_000:.0f}K" if x >= 1_000 else f"{x:,.0f}"))
-            fig_top10 = px.bar(top10, y='Cliente', x='Valor', text='Texto',
-                               orientation='h', color_discrete_sequence=['#2C3E50'])
+            fig_top10 = px.bar(top10, y='Cliente', x='Valor', text='Texto', orientation='h', color_discrete_sequence=['#2C3E50'])
             fig_top10.update_traces(textposition="outside")
             fig_top10.update_layout(title='Top 10 Clientes Inadimplentes', showlegend=False, height=500)
             st.plotly_chart(fig_top10, use_container_width=True)
