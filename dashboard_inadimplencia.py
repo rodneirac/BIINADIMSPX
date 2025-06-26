@@ -16,7 +16,7 @@ URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DAD
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
-if st.button("🔄 Recarregar dados"):
+if st.button("\U0001F504 Recarregar dados"):
     st.cache_data.clear()
     st.rerun()
 
@@ -190,6 +190,14 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cli['Valor Inadimplente'] = resumo_cli['Valor Inadimplente'].apply(fmt)
             resumo_cli['% sobre Total'] = resumo_cli['Representatividade'].apply(lambda x: f"{x:.1%}")
             st.dataframe(resumo_cli[['Cliente', 'Valor Inadimplente', '% sobre Total']], use_container_width=True)
+
+            top10 = resumo_cli.head(10).copy()
+            top10['Valor'] = top10['Valor Inadimplente'].str.replace("R$", "").str.replace(".", "").str.replace(",", ".").astype(float)
+            fig_top10 = px.bar(top10, x='Cliente', y='Valor', text=top10['Valor'].apply(lambda x: f'R$ {x:,.2f}'),
+                               color='Cliente', title='Top 10 Clientes Inadimplentes')
+            fig_top10.update_traces(textposition="outside")
+            fig_top10.update_layout(showlegend=False, height=500)
+            st.plotly_chart(fig_top10, use_container_width=True)
         else:
             st.warning("Coluna 'Nome 1' (cliente) não encontrada na base de dados.")
 else:
