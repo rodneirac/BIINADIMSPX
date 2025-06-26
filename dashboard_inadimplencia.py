@@ -114,6 +114,12 @@ if not df_original.empty and not df_regiao.empty:
     tot_venc = df_venc["Montante em moeda interna"].sum()
     tot_geral = tot_inad + tot_venc
 
+    # NOVO: Soma dos valores onde FrmPgto é "H" ou "R"
+    if "FrmPgto" in df_filt.columns:
+        soma_frmpgto_HR = df_filt[df_filt["FrmPgto"].isin(["H", "R"])]["Montante em moeda interna"].sum()
+    else:
+        soma_frmpgto_HR = 0
+
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
     st.markdown(f"**Exibindo dados para:** Região: `{regiao_sel}` | Divisão: `{divisao_sel}` | Exercício: `{exercicio_sel}`")
@@ -122,7 +128,7 @@ if not df_original.empty and not df_regiao.empty:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Soma bruta planilha", f"R$ {soma_bruta_planilha:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     c2.metric("Valor Total Inadimplente", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    c3.metric("Valor Total à Vencer", f"R$ {tot_venc:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    c3.metric("Valor FrmPgto 'H' ou 'R'", f"R$ {soma_frmpgto_HR:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     c4.metric("Valor Total Contas a Receber", f"R$ {tot_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
     st.markdown("### Quadro Detalhado de Inadimplência")
