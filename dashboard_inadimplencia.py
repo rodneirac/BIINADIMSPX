@@ -234,8 +234,7 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
             st.dataframe(resumo_cli_fmt, use_container_width=True)
 
-            # Top 10 Gráfico em azul-verde e label M/K
-            top_n = resumo_cli.head(10)
+            # Top 10 Gráfico em azul-verde e label M/K AJUSTADO!
             def label_mk(valor):
                 if valor >= 1_000_000:
                     return f"{valor/1_000_000:.1f}M"
@@ -244,17 +243,20 @@ if not df_original.empty and not df_regiao.empty:
                 else:
                     return f"{valor:,.0f}"
 
-            # Cores azul-verde
             colors = [
                 "#0099cc", "#33cc99", "#00b386", "#00cc99", "#33cccc",
                 "#009966", "#00cc99", "#00b386", "#33cc99", "#0099cc"
             ]
+
+            top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
+            top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
+
             fig_cli = px.bar(
-                top_n.sort_values('Valor Inadimplente'),
+                top_n,
                 x='Valor Inadimplente',
                 y='Cliente',
                 orientation='h',
-                text=top_n['Valor Inadimplente'].apply(label_mk),
+                text='label_mk',
                 color_discrete_sequence=colors
             )
             fig_cli.update_layout(
