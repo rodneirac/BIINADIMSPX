@@ -130,12 +130,67 @@ if not df_original.empty and not df_regiao.empty:
     c2.metric("Valor Total Inadimplente", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     c3.metric("Venda Antecipada Inadimplente", f"R$ {soma_frmpgto_HR:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
+    # --- NOVO EXPLORADOR DETALHADO ---
+    def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    with st.expander("🔍 Venda Antecipada Inadimplente – Detalhamento por Filial e Cliente"):
+        if "FrmPgto" in df_filt.columns:
+            df_antecipada = df_filt[df_filt["FrmPgto"].isin(["H", "R"])].copy()
+            
+            # Por Filial
+            resumo_filial = (
+                df_antecipada.groupby(col_div_princ)["Montante em moeda interna"]
+                .sum()
+                .reset_index()
+                .rename(columns={col_div_princ: 'Filial', 'Montante em moeda interna': 'Venda Antecipada Inadimplente'})
+                .sort_values(by='Venda Antecipada Inadimplente', ascending=False)
+            )
+            resumo_filial_fmt = resumo_filial.copy()
+            resumo_filial_fmt['Venda Antecipada Inadimplente'] = resumo_filial_fmt['Venda Antecipada Inadimplente'].apply(fmt)
+            st.markdown("**Por Filial:**")
+            st.dataframe(resumo_filial_fmt, use_container_width=True)
+
+            # Gráfico Filial
+            if not resumo_filial.empty:
+                fig_filial = px.bar(resumo_filial, x='Venda Antecipada Inadimplente', y='Filial', orientation='h',
+                                    title='Venda Antecipada Inadimplente por Filial')
+                fig_filial.update_layout(height=400, yaxis_title='', xaxis_title='Valor (R$)', showlegend=False)
+                fig_filial.update_traces(texttemplate='R$ %{x:,.2f}', textposition='outside')
+                st.plotly_chart(fig_filial, use_container_width=True)
+
+            # Por Cliente
+            if 'Nome 1' in df_antecipada.columns:
+                resumo_cli = (
+                    df_antecipada.groupby('Nome 1')["Montante em moeda interna"]
+                    .sum()
+                    .reset_index()
+                    .rename(columns={'Nome 1': 'Cliente', 'Montante em moeda interna': 'Venda Antecipada Inadimplente'})
+                    .sort_values(by='Venda Antecipada Inadimplente', ascending=False)
+                )
+                resumo_cli_fmt = resumo_cli.copy()
+                resumo_cli_fmt['Venda Antecipada Inadimplente'] = resumo_cli_fmt['Venda Antecipada Inadimplente'].apply(fmt)
+                st.markdown("**Por Cliente:**")
+                st.dataframe(resumo_cli_fmt, use_container_width=True)
+
+                # Gráfico Cliente (Top 10)
+                top_n_cli = resumo_cli.head(10)
+                if not top_n_cli.empty:
+                    fig_cli = px.bar(top_n_cli.sort_values('Venda Antecipada Inadimplente'),
+                                     x='Venda Antecipada Inadimplente', y='Cliente',
+                                     orientation='h',
+                                     title='Top 10 Clientes – Venda Antecipada Inadimplente')
+                    fig_cli.update_layout(height=400, yaxis_title='', xaxis_title='Valor (R$)', showlegend=False)
+                    fig_cli.update_traces(texttemplate='R$ %{x:,.2f}', textposition='outside')
+                    st.plotly_chart(fig_cli, use_container_width=True)
+            else:
+                st.info("Coluna 'Nome 1' não encontrada na base de dados para o detalhamento por cliente.")
+        else:
+            st.info("Coluna FrmPgto não encontrada.")
+
     st.markdown("### Quadro Detalhado de Inadimplência")
     pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"],
                            values="Montante em moeda interna", columns="Prazo",
                            aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
-
-    def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     st.dataframe(
         pivot.style.format({col: fmt for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
