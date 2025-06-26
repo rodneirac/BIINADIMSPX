@@ -16,7 +16,7 @@ URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DAD
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
-if st.button("\U0001F504 Recarregar dados"):
+if st.button("🔄 Recarregar dados"):
     st.cache_data.clear()
     st.rerun()
 
@@ -64,9 +64,6 @@ def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
 
-def format_moeda(v):
-    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
 df_original = load_data(URL_DADOS)
 df_regiao = load_region_data(URL_REGIAO)
 
@@ -85,6 +82,10 @@ if not df_original.empty and not df_regiao.empty:
 
     df_regiao = df_regiao.drop_duplicates(subset=[col_div_regiao])
     df_merged = pd.merge(df_original, df_regiao, on=col_div_princ, how="left")
+
+    soma_apos_merge = df_merged["Montante em moeda interna"].sum()
+    if abs(soma_bruta_planilha - soma_apos_merge) > 1:
+        st.warning(f"Soma após merge: R$ {soma_apos_merge:,.2f} difere do bruto: R$ {soma_bruta_planilha:,.2f}")
 
     df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
 
@@ -110,8 +111,8 @@ if not df_original.empty and not df_regiao.empty:
     df_venc = df_filt[df_filt["Dias de atraso"] <= 0].copy()
 
     tot_inad = df_inad["Montante em moeda interna"].sum()
-    tot_venda_antec = df_inad[df_inad['FrmPgto'].isin(['H', 'R'])]["Montante em moeda interna"].sum()
-    tot_geral = tot_inad + df_venc["Montante em moeda interna"].sum()
+    tot_venc = df_venc["Montante em moeda interna"].sum()
+    tot_geral = tot_inad + tot_venc
 
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
@@ -119,41 +120,89 @@ if not df_original.empty and not df_regiao.empty:
 
     st.markdown("### Indicadores Gerais")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Soma bruta planilha", format_moeda(soma_bruta_planilha))
-    c2.metric("Valor Total Inadimplente", format_moeda(tot_inad))
-    c3.metric("Venda Antecipada Inadimplente", format_moeda(tot_venda_antec))
-    c4.metric("Valor Total Contas a Receber", format_moeda(tot_geral))
+    c1.metric("Soma bruta planilha", f"R$ {soma_bruta_planilha:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    c2.metric("Valor Total Inadimplente", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    c3.metric("Valor Total à Vencer", f"R$ {tot_venc:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    c4.metric("Valor Total Contas a Receber", f"R$ {tot_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-    # Resumo por cliente e top 10 já incluso acima
+    st.markdown("### Quadro Detalhado de Inadimplência")
+    pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"],
+                           values="Montante em moeda interna", columns="Prazo",
+                           aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
 
-    with st.expander("Resumo por Divisão"):
-        df_div = df_inad.groupby(col_div_princ)["Montante em moeda interna"].sum().reset_index()
-        df_div.rename(columns={"Montante em moeda interna": "Valor"}, inplace=True)
-        df_div["Valor"] = df_div["Valor"].apply(format_moeda)
-        st.dataframe(df_div, use_container_width=True)
+    def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-    st.markdown("### Gráfico por Exercício e Faixa")
-    df_ex = df_inad.copy()
-    df_ex["Categoria"] = df_ex.apply(lambda row: row["Exercicio"] + (" - " + row["Faixa"] if row["Faixa"] else ""), axis=1)
-    df_graf = df_ex.groupby("Categoria")["Montante em moeda interna"].sum().reset_index()
-    df_graf.rename(columns={"Montante em moeda interna": "Valor"}, inplace=True)
-    fig_cat = px.bar(df_graf, x="Categoria", y="Valor", text=df_graf["Valor"].apply(lambda x: f"{x/1_000_000:.1f}M"), color="Categoria")
-    fig_cat.update_layout(showlegend=False, height=400)
-    fig_cat.update_traces(textposition="outside")
-    st.plotly_chart(fig_cat, use_container_width=True)
+    st.dataframe(
+        pivot.style.format({col: fmt for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
+        use_container_width=True
+    )
 
-    st.markdown("### Participação por Região")
-    df_pie = df_inad.groupby("Região")["Montante em moeda interna"].sum().reset_index()
-    fig_pie = px.pie(df_pie, names="Região", values="Montante em moeda interna", hole=0.3)
-    fig_pie.update_traces(textposition="inside", textinfo="percent+label")
+    st.markdown("### Inadimplência por Exercício")
+    df_outros = df_inad[df_inad['Exercicio'] != '2025']
+    df_outros = df_outros.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
+    df_outros.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
+
+    df_2025 = df_inad[df_inad['Exercicio'] == '2025']
+    df_2025 = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
+    df_2025 = df_2025[df_2025['Faixa'] != '']
+    df_2025['Categoria'] = '2025 - ' + df_2025['Faixa']
+    df_2025.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
+
+    df_graf = pd.concat([df_outros, df_2025[['Categoria', 'Valor']]], ignore_index=True)
+
+    if not df_graf.empty:
+        color_map = {cat: '#EA4335' for cat in df_outros['Categoria'].unique()}
+        cores_2025 = ['#FFC107', '#FF9800', '#F57C00']
+        categorias_2025 = sorted(df_2025['Categoria'].unique())
+        for i, cat in enumerate(categorias_2025):
+            color_map[cat] = cores_2025[i % len(cores_2025)]
+
+        fig_bar = px.bar(df_graf, x='Categoria', y='Valor',
+                         text=df_graf['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
+                         color='Categoria', color_discrete_map=color_map)
+        fig_bar.update_layout(title='Detalhe por Exercício e Faixa (2025)', showlegend=False, height=400)
+        fig_bar.update_traces(textposition='outside')
+        st.plotly_chart(fig_bar, use_container_width=True)
+    else:
+        st.info("Sem dados para gerar o gráfico de barras neste filtro.")
+
+    st.markdown("### Inadimplência por Região (3D Simulado)")
+    df_pie = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
+    fig_pie = px.pie(df_pie, names='Região', values='Montante em moeda interna',
+                     title='Participação por Região', hole=0.2)
+    fig_pie.update_traces(textposition='inside', textinfo='percent+label', pull=[0.05]*len(df_pie))
+    fig_pie.update_layout(title_font_size=16, height=600, width=800)
     st.plotly_chart(fig_pie, use_container_width=True)
 
-    st.markdown("### Quadro por Prazo e Faixa")
-    pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"], columns="Prazo", values="Montante em moeda interna", aggfunc="sum", fill_value=0)
-    pivot = pivot.reset_index()
-    for col in pivot.columns:
-        if col not in ["Exercicio", "Faixa"]:
-            pivot[col] = pivot[col].apply(format_moeda)
-    st.dataframe(pivot, use_container_width=True)
+    with st.expander("Clique para ver o Resumo por Divisão"):
+        resumo = df_inad.groupby(col_div_princ)['Montante em moeda interna'].sum().reset_index()
+        resumo.rename(columns={col_div_princ: 'Divisão', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
+        resumo = resumo.sort_values(by='Valor Inadimplente', ascending=False)
+        resumo['Valor Inadimplente'] = resumo['Valor Inadimplente'].apply(fmt)
+        st.dataframe(resumo, use_container_width=True)
+
+    with st.expander("Clique para ver o Resumo por Cliente"):
+        if 'Nome 1' in df_inad.columns:
+            resumo_cli = df_inad.groupby('Nome 1')['Montante em moeda interna'].sum().reset_index()
+            resumo_cli.rename(columns={'Nome 1': 'Cliente', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
+            resumo_cli['% do Total'] = resumo_cli['Valor Inadimplente'] / tot_inad * 100
+            resumo_cli = resumo_cli.sort_values(by='Valor Inadimplente', ascending=False)
+            resumo_cli_fmt = resumo_cli.copy()
+            resumo_cli_fmt['Valor Inadimplente'] = resumo_cli_fmt['Valor Inadimplente'].apply(fmt)
+            resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
+            st.dataframe(resumo_cli_fmt, use_container_width=True)
+
+            top_n = resumo_cli.head(10)
+            fig_cli = px.bar(top_n.sort_values('Valor Inadimplente'), 
+                             x='Valor Inadimplente', y='Cliente', 
+                             orientation='h', 
+                             text=top_n['% do Total'].apply(lambda x: f"{x:.1f}%"),
+                             title='Top 10 Clientes Inadimplentes')
+            fig_cli.update_layout(height=500, yaxis_title='', xaxis_title='Valor Inadimplente', showlegend=False)
+            fig_cli.update_traces(textposition='outside')
+            st.plotly_chart(fig_cli, use_container_width=True)
+        else:
+            st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
+
 else:
     st.error("Dados não disponíveis.")
