@@ -130,7 +130,7 @@ if not df_original.empty and not df_regiao.empty:
     c2.metric("Valor Total Inadimplente", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     c3.metric("Venda Antecipada Inadimplente", f"R$ {soma_frmpgto_HR:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-    # --- NOVO EXPLORADOR DETALHADO ---
+    # --- NOVO EXPLORADOR DETALHADO SEM GRÁFICOS ---
     def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     with st.expander("🔍 Venda Antecipada Inadimplente – Detalhamento por Filial e Cliente"):
@@ -150,14 +150,6 @@ if not df_original.empty and not df_regiao.empty:
             st.markdown("**Por Filial:**")
             st.dataframe(resumo_filial_fmt, use_container_width=True)
 
-            # Gráfico Filial
-            if not resumo_filial.empty:
-                fig_filial = px.bar(resumo_filial, x='Venda Antecipada Inadimplente', y='Filial', orientation='h',
-                                    title='Venda Antecipada Inadimplente por Filial')
-                fig_filial.update_layout(height=400, yaxis_title='', xaxis_title='Valor (R$)', showlegend=False)
-                fig_filial.update_traces(texttemplate='R$ %{x:,.2f}', textposition='outside')
-                st.plotly_chart(fig_filial, use_container_width=True)
-
             # Por Cliente
             if 'Nome 1' in df_antecipada.columns:
                 resumo_cli = (
@@ -171,17 +163,6 @@ if not df_original.empty and not df_regiao.empty:
                 resumo_cli_fmt['Venda Antecipada Inadimplente'] = resumo_cli_fmt['Venda Antecipada Inadimplente'].apply(fmt)
                 st.markdown("**Por Cliente:**")
                 st.dataframe(resumo_cli_fmt, use_container_width=True)
-
-                # Gráfico Cliente (Top 10)
-                top_n_cli = resumo_cli.head(10)
-                if not top_n_cli.empty:
-                    fig_cli = px.bar(top_n_cli.sort_values('Venda Antecipada Inadimplente'),
-                                     x='Venda Antecipada Inadimplente', y='Cliente',
-                                     orientation='h',
-                                     title='Top 10 Clientes – Venda Antecipada Inadimplente')
-                    fig_cli.update_layout(height=400, yaxis_title='', xaxis_title='Valor (R$)', showlegend=False)
-                    fig_cli.update_traces(texttemplate='R$ %{x:,.2f}', textposition='outside')
-                    st.plotly_chart(fig_cli, use_container_width=True)
             else:
                 st.info("Coluna 'Nome 1' não encontrada na base de dados para o detalhamento por cliente.")
         else:
