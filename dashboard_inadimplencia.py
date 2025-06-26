@@ -127,7 +127,7 @@ if not df_original.empty and not df_regiao.empty:
     st.markdown("### Indicadores Gerais")
     c1, c2, c3 = st.columns(3)
     c1.metric("Valor Total Inadimplente", f"R$ {soma_bruta_planilha:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    c2.metric("Valor Inadim Filtros", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    c2.metric("Valor Inadimplente Filtros Ativos", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     c3.metric("Venda Antecipada Inadimplente", f"R$ {soma_frmpgto_HR:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
     # --- NOVO EXPLORADOR DETALHADO SEM GRÁFICOS ---
