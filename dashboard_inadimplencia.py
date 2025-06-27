@@ -128,7 +128,6 @@ if not df_original.empty and not df_regiao.empty:
 
     tot_inad = df_inad["Montante em moeda interna"].sum()
     tot_venc = df_venc["Montante em moeda interna"].sum()
-    tot_geral = tot_inad + tot_venc
 
     # NOVO: Soma dos valores onde FrmPgto é "H" ou "R"
     if "FrmPgto" in df_filt.columns:
@@ -142,18 +141,15 @@ if not df_original.empty and not df_regiao.empty:
 
     st.markdown("### Indicadores Gerais")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Vlr Total Inadimplente", f"R$ {soma_bruta_planilha:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    c2.metric("Vlr Inadimplente", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    c1.metric("Soma bruta planilha", f"R$ {soma_bruta_planilha:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    c2.metric("Valor Total Inadimplente", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     c3.metric("Venda Antecipada Inadimplente", f"R$ {soma_frmpgto_HR:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-    # --- NOVO EXPLORADOR DETALHADO SEM GRÁFICOS ---
     def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     with st.expander("🔍 Venda Antecipada Inadimplente – Detalhamento por Filial e Cliente"):
         if "FrmPgto" in df_filt.columns:
             df_antecipada = df_filt[df_filt["FrmPgto"].isin(["H", "R"])].copy()
-            
-            # Por Filial
             resumo_filial = (
                 df_antecipada.groupby(col_div_princ)["Montante em moeda interna"]
                 .sum()
@@ -166,7 +162,6 @@ if not df_original.empty and not df_regiao.empty:
             st.markdown("**Por Filial:**")
             st.dataframe(resumo_filial_fmt, use_container_width=True)
 
-            # Por Cliente
             if 'Nome 1' in df_antecipada.columns:
                 resumo_cli = (
                     df_antecipada.groupby('Nome 1')["Montante em moeda interna"]
@@ -223,6 +218,68 @@ if not df_original.empty and not df_regiao.empty:
     else:
         st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
+    # --------------- NOVO GRÁFICO: INADIMPLÊNCIA POR TIPO DE COBRANÇA ---------------
+    # 1. Mapeamento das regras (todos como string)
+    regra_tipo_cobranca = {
+        'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
+        'CARTEIRA':            ['999'],
+        'PERMUTA':             ['096', '96'],
+        'COBRANÇA JURIDICA':   ['060', '60', '005', '5', '888'],
+        'COBRANÇA PROTESTADO': ['087', '87'],
+        'ANÁLISE PROCESSO':    ['007', '7', '020', '20', '022', '22'],
+        'DIVERSOS':            ['899', '991', '026', '26', '990', '006', '6', '']
+    }
+
+    # 2. Converter a coluna para string, preenchendo nulos com '' e removendo espaços
+    df_filt['Banco da empresa'] = df_filt['Banco da empresa'].fillna('').astype(str).str.strip()
+
+    # 3. Calcular os valores por tipo de cobrança
+    resultado = []
+    for tipo, bancos in regra_tipo_cobranca.items():
+        if tipo == 'DIVERSOS':
+            mask = df_filt['Banco da empresa'].isin(bancos) | (df_filt['Banco da empresa'] == '')
+        else:
+            mask = df_filt['Banco da empresa'].isin(bancos)
+        soma = df_filt.loc[mask, 'Montante em moeda interna'].sum()
+        resultado.append({'Tipo de Cobrança': tipo, 'Valor': soma})
+
+    df_tipo_cobranca = pd.DataFrame(resultado)
+
+    # 4. Formatação do label (M/K)
+    def label_mk(valor):
+        if valor >= 1_000_000:
+            return f"{valor/1_000_000:.1f}M"
+        elif valor >= 1_000:
+            return f"{valor/1_000:.1f}K"
+        else:
+            return f"{valor:,.0f}"
+
+    # 5. Ordenar decrescente e criar coluna label
+    df_tipo_cobranca = df_tipo_cobranca.sort_values('Valor', ascending=False)
+    df_tipo_cobranca['label_mk'] = df_tipo_cobranca['Valor'].apply(label_mk)
+
+    # 6. Plotar gráfico horizontal, tom de vinho
+    fig_cobranca = px.bar(
+        df_tipo_cobranca,
+        x='Valor',
+        y='Tipo de Cobrança',
+        orientation='h',
+        text='label_mk',
+        color_discrete_sequence=['#800020']  # Tom de vinho
+    )
+    fig_cobranca.update_layout(
+        showlegend=False,
+        height=400,
+        title='Soma por Tipo de Cobrança (Regras Banco da empresa)',
+        xaxis_title="Valor (R$)",
+        yaxis_title="Tipo de Cobrança"
+    )
+    fig_cobranca.update_traces(textposition='outside')
+
+    st.markdown("### Inadimplência por Tipo de Cobrança (Regras Banco da empresa)")
+    st.plotly_chart(fig_cobranca, use_container_width=True)
+    # --------------- FIM DO NOVO GRÁFICO ---------------
+
     st.markdown("### Inadimplência por Região (3D Simulado)")
     df_pie = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
     fig_pie = px.pie(df_pie, names='Região', values='Montante em moeda interna',
@@ -238,7 +295,6 @@ if not df_original.empty and not df_regiao.empty:
         resumo['Valor Inadimplente'] = resumo['Valor Inadimplente'].apply(fmt)
         st.dataframe(resumo, use_container_width=True)
 
-    # ------ NOVO BLOCO GRÁFICO AJUSTADO ---------
     with st.expander("Clique para ver o Resumo por Cliente"):
         if 'Nome 1' in df_inad.columns:
             resumo_cli = df_inad.groupby('Nome 1')['Montante em moeda interna'].sum().reset_index()
@@ -250,42 +306,8 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
             st.dataframe(resumo_cli_fmt, use_container_width=True)
 
-            # Top 10 Gráfico em azul-verde e label M/K AJUSTADO!
             def label_mk(valor):
                 if valor >= 1_000_000:
                     return f"{valor/1_000_000:.1f}M"
                 elif valor >= 1_000:
-                    return f"{valor/1_000:.1f}K"
-                else:
-                    return f"{valor:,.0f}"
-
-            colors = [
-                "#0099cc", "#33cc99", "#00b386", "#00cc99", "#33cccc",
-                "#009966", "#00cc99", "#00b386", "#33cc99", "#0099cc"
-            ]
-
-            top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
-            top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
-
-            fig_cli = px.bar(
-                top_n,
-                x='Valor Inadimplente',
-                y='Cliente',
-                orientation='h',
-                text='label_mk',
-                color_discrete_sequence=colors
-            )
-            fig_cli.update_layout(
-                height=500,
-                yaxis_title='',
-                xaxis_title='Valor Inadimplente',
-                showlegend=False,
-                title='Top 10 Clientes Inadimplentes'
-            )
-            fig_cli.update_traces(textposition='outside')
-            st.plotly_chart(fig_cli, use_container_width=True)
-        else:
-            st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
-
-else:
-    st.error("Dados não disponíveis.")
+                    return f"{valor/
