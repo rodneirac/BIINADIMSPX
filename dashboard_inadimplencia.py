@@ -245,6 +245,7 @@ if not df_original.empty and not df_regiao.empty:
             return f"{valor/1_000:.1f}K"
         else:
             return f"{valor:,.0f}"
+    # Ordem decrescente!
     df_tipo_cobranca = df_tipo_cobranca.sort_values('Valor', ascending=False)
     df_tipo_cobranca['label_mk'] = df_tipo_cobranca['Valor'].apply(label_mk)
     fig_cobranca = px.bar(
@@ -258,12 +259,13 @@ if not df_original.empty and not df_regiao.empty:
     fig_cobranca.update_layout(
         showlegend=False,
         height=400,
-        title='Soma por Tipo de Cobrança (Regras Banco da empresa)',
+        title='',  # sem título interno!
         xaxis_title="Valor (R$)",
         yaxis_title="Tipo de Cobrança"
     )
     fig_cobranca.update_traces(textposition='outside')
-    st.markdown("### Inadimplência por Tipo de Cobrança (Regras Banco da empresa)")
+    # Título externo
+    st.markdown("## Inadimplência por Tipo de Cobrança")
     st.plotly_chart(fig_cobranca, use_container_width=True)
     # --------------- FIM DO NOVO GRÁFICO ---------------
 
@@ -303,28 +305,4 @@ if not df_original.empty and not df_regiao.empty:
                     return f"{valor:,.0f}"
 
             top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
-            top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
-
-            fig_cli = px.bar(
-                top_n,
-                x='Valor Inadimplente',
-                y='Cliente',
-                orientation='h',
-                text='label_mk',
-                color_discrete_sequence=["#0074D9"]  # azul clássico
-            )
-            fig_cli.update_layout(
-                height=500,
-                yaxis_title='',
-                xaxis_title='Valor Inadimplente',
-                showlegend=False,
-                title='Top 10 Clientes Inadimplentes'
-            )
-            fig_cli.update_traces(textposition='outside')
-            st.plotly_chart(fig_cli, use_container_width=True)
-            # ----------- FIM DO GRÁFICO TOP 10 -----------
-        else:
-            st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
-
-else:
-    st.error("Dados não disponíveis.")
+            top_n['label_mk'] =
