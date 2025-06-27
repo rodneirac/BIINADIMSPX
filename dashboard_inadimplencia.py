@@ -90,25 +90,25 @@ if not df_original.empty and not df_regiao.empty:
 
     df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
 
-    # Filtros (antes do botão)
+    # Filtros E botão recarregar (tudo na sidebar)
     st.sidebar.title("Filtros")
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
     exercicio_sel = st.sidebar.selectbox("Selecione o Exercício:", ["TODOS OS EXERCÍCIOS"] + sorted(df_merged['Exercicio'].unique()))
 
-    # ---- Botão recarregar e mensagem, agora após filtros ----
-    st.markdown("---")
-    st.markdown("#### Atualização de Dados")
-    if st.button("🔄 Recarregar dados"):
+    # Botão recarregar e mensagem na sidebar, logo abaixo dos filtros
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("#### Atualização de Dados")
+    if st.sidebar.button("🔄 Recarregar dados"):
         st.cache_data.clear()
         st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
         st.rerun()
-    st.caption("Clique para buscar os dados mais recentes das planilhas do GitHub. Use sempre que houver atualização dos arquivos fonte.")
+    st.sidebar.caption("Clique para buscar os dados mais recentes das planilhas do GitHub. Use sempre que houver atualização dos arquivos fonte.")
 
     if st.session_state['last_reload']:
-        st.success(f"Dados recarregados em {st.session_state['last_reload']}")
+        st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
 
-    # ----------------------------------------------------------
+    # ---- FIM DA SIDEBAR ----
 
     df_filt = df_merged.copy()
     if regiao_sel != "TODAS AS REGIÕES":
