@@ -17,6 +17,15 @@ URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DAD
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
+# Função para formatação em milhões/milhares
+def label_mk(valor):
+    if valor >= 1_000_000:
+        return f"{valor/1_000_000:.1f}M"
+    elif valor >= 1_000:
+        return f"{valor/1_000:.1f}K"
+    else:
+        return f"{valor:,.0f}"
+
 # Controle de última atualização
 if 'last_reload' not in st.session_state:
     st.session_state['last_reload'] = None
@@ -218,7 +227,7 @@ if not df_original.empty and not df_regiao.empty:
     else:
         st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
-    # --------------- NOVO GRÁFICO: INADIMPLÊNCIA POR TIPO DE COBRANÇA ---------------
+    # --------------- GRÁFICO: INADIMPLÊNCIA POR TIPO DE COBRANÇA ---------------
     regra_tipo_cobranca = {
         'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
         'CARTEIRA':            ['999'],
@@ -238,14 +247,6 @@ if not df_original.empty and not df_regiao.empty:
         soma = df_filt.loc[mask, 'Montante em moeda interna'].sum()
         resultado.append({'Tipo de Cobrança': tipo, 'Valor': soma})
     df_tipo_cobranca = pd.DataFrame(resultado)
-    def label_mk(valor):
-        if valor >= 1_000_000:
-            return f"{valor/1_000_000:.1f}M"
-        elif valor >= 1_000:
-            return f"{valor/1_000:.1f}K"
-        else:
-            return f"{valor:,.0f}"
-    # Ordem decrescente!
     df_tipo_cobranca = df_tipo_cobranca.sort_values('Valor', ascending=False)
     df_tipo_cobranca['label_mk'] = df_tipo_cobranca['Valor'].apply(label_mk)
     fig_cobranca = px.bar(
@@ -296,13 +297,13 @@ if not df_original.empty and not df_regiao.empty:
             st.dataframe(resumo_cli_fmt, use_container_width=True)
 
             # ----------- GRÁFICO TOP 10 CLIENTES INADIMPLENTES -----------
-            def label_mk(valor):
-                if valor >= 1_000_000:
-                    return f"{valor/1_000_000:.1f}M"
-                elif valor >= 1_000:
-                    return f"{valor/1_000:.1f}K"
-                else:
-                    return f"{valor:,.0f}"
-
             top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
-            top_n['label_mk'] =
+            top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
+
+            fig_cli = px.bar(
+                top_n,
+                x='Valor Inadimplente',
+                y='Cliente',
+                orientation='h',
+                text='label_mk',
+                color_discrete_sequence=["#0074
