@@ -292,6 +292,37 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cli_fmt['Valor Inadimplente'] = resumo_cli_fmt['Valor Inadimplente'].apply(fmt)
             resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
             st.dataframe(resumo_cli_fmt, use_container_width=True)
+
+            # ----------- GRÁFICO TOP 10 CLIENTES INADIMPLENTES -----------
+            def label_mk(valor):
+                if valor >= 1_000_000:
+                    return f"{valor/1_000_000:.1f}M"
+                elif valor >= 1_000:
+                    return f"{valor/1_000:.1f}K"
+                else:
+                    return f"{valor:,.0f}"
+
+            top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
+            top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
+
+            fig_cli = px.bar(
+                top_n,
+                x='Valor Inadimplente',
+                y='Cliente',
+                orientation='h',
+                text='label_mk',
+                color_discrete_sequence=["#0074D9"]  # azul clássico
+            )
+            fig_cli.update_layout(
+                height=500,
+                yaxis_title='',
+                xaxis_title='Valor Inadimplente',
+                showlegend=False,
+                title='Top 10 Clientes Inadimplentes'
+            )
+            fig_cli.update_traces(textposition='outside')
+            st.plotly_chart(fig_cli, use_container_width=True)
+            # ----------- FIM DO GRÁFICO TOP 10 -----------
         else:
             st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
 
