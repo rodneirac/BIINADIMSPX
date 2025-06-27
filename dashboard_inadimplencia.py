@@ -219,7 +219,6 @@ if not df_original.empty and not df_regiao.empty:
         st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
     # --------------- NOVO GRÁFICO: INADIMPLÊNCIA POR TIPO DE COBRANÇA ---------------
-    # 1. Mapeamento das regras (todos como string)
     regra_tipo_cobranca = {
         'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
         'CARTEIRA':            ['999'],
@@ -229,11 +228,7 @@ if not df_original.empty and not df_regiao.empty:
         'ANÁLISE PROCESSO':    ['007', '7', '020', '20', '022', '22'],
         'DIVERSOS':            ['899', '991', '026', '26', '990', '006', '6', '']
     }
-
-    # 2. Converter a coluna para string, preenchendo nulos com '' e removendo espaços
     df_filt['Banco da empresa'] = df_filt['Banco da empresa'].fillna('').astype(str).str.strip()
-
-    # 3. Calcular os valores por tipo de cobrança
     resultado = []
     for tipo, bancos in regra_tipo_cobranca.items():
         if tipo == 'DIVERSOS':
@@ -242,10 +237,7 @@ if not df_original.empty and not df_regiao.empty:
             mask = df_filt['Banco da empresa'].isin(bancos)
         soma = df_filt.loc[mask, 'Montante em moeda interna'].sum()
         resultado.append({'Tipo de Cobrança': tipo, 'Valor': soma})
-
     df_tipo_cobranca = pd.DataFrame(resultado)
-
-    # 4. Formatação do label (M/K)
     def label_mk(valor):
         if valor >= 1_000_000:
             return f"{valor/1_000_000:.1f}M"
@@ -253,19 +245,15 @@ if not df_original.empty and not df_regiao.empty:
             return f"{valor/1_000:.1f}K"
         else:
             return f"{valor:,.0f}"
-
-    # 5. Ordenar decrescente e criar coluna label
     df_tipo_cobranca = df_tipo_cobranca.sort_values('Valor', ascending=False)
     df_tipo_cobranca['label_mk'] = df_tipo_cobranca['Valor'].apply(label_mk)
-
-    # 6. Plotar gráfico horizontal, tom de vinho
     fig_cobranca = px.bar(
         df_tipo_cobranca,
         x='Valor',
         y='Tipo de Cobrança',
         orientation='h',
         text='label_mk',
-        color_discrete_sequence=['#800020']  # Tom de vinho
+        color_discrete_sequence=['#800020']
     )
     fig_cobranca.update_layout(
         showlegend=False,
@@ -275,7 +263,6 @@ if not df_original.empty and not df_regiao.empty:
         yaxis_title="Tipo de Cobrança"
     )
     fig_cobranca.update_traces(textposition='outside')
-
     st.markdown("### Inadimplência por Tipo de Cobrança (Regras Banco da empresa)")
     st.plotly_chart(fig_cobranca, use_container_width=True)
     # --------------- FIM DO NOVO GRÁFICO ---------------
@@ -305,9 +292,8 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cli_fmt['Valor Inadimplente'] = resumo_cli_fmt['Valor Inadimplente'].apply(fmt)
             resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
             st.dataframe(resumo_cli_fmt, use_container_width=True)
+        else:
+            st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
 
-            def label_mk(valor):
-                if valor >= 1_000_000:
-                    return f"{valor/1_000_000:.1f}M"
-                elif valor >= 1_000:
-                    return f"{valor/
+else:
+    st.error("Dados não disponíveis.")
