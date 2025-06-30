@@ -1,38 +1,48 @@
+funcionou. Segue codigo completo que está funcionando. Apreda o novamente para ajustarmos uma nova atualização Via google drive.
+
 import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
 from datetime import datetime
+from io import BytesIO
 import time
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
-# IDs do Google Sheets
-SHEET_ID = "1ndXRYn2e15Jom44-jrYW-bfTl7m-JT--"
-GID_INADIM = "0"   # ajuste se sua aba principal tiver outro gid
-
-# Caminho do REGIAO permanece no GitHub
 OWNER = "rodneirac"
 REPO = "BIINADIMSPX"
+ARQUIVO_DADOS = "INADIMATUAL.XLSX"
 ARQUIVO_REGIAO = "REGIAO.xlsx"
-URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 
-# Função para leitura da planilha Google Sheets via CSV export
-def load_google_sheet_csv(sheet_id, gid):
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-    df = pd.read_csv(url)
-    return df
+URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DADOS}"
+URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
+LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
+
+# Função para formatação em milhões/milhares
+def label_mk(valor):
+    if valor >= 1_000_000:
+        return f"{valor/1_000_000:.1f}M"
+    elif valor >= 1_000:
+        return f"{valor/1_000:.1f}K"
+    else:
+        return f"{valor:,.0f}"
+
+# Controle de última atualização
+if 'last_reload' not in st.session_state:
+    st.session_state['last_reload'] = None
 
 @st.cache_data(ttl=3600)
-def load_data():
-    df = load_google_sheet_csv(SHEET_ID, GID_INADIM)
+def load_data(url):
+    response = requests.get(url)
+    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
     df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
     df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
     return df
 
 @st.cache_data(ttl=3600)
-def load_region_data():
-    response = requests.get(URL_REGIAO)
+def load_region_data(url):
+    response = requests.get(url)
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
     return df
 
@@ -66,20 +76,8 @@ def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
 
-# Função para formatação em milhões/milhares
-def label_mk(valor):
-    if valor >= 1_000_000:
-        return f"{valor/1_000_000:.1f}M"
-    elif valor >= 1_000:
-        return f"{valor/1_000:.1f}K"
-    else:
-        return f"{valor:,.0f}"
-
-if 'last_reload' not in st.session_state:
-    st.session_state['last_reload'] = None
-
-df_original = load_data()
-df_regiao = load_region_data()
+df_original = load_data(URL_DADOS)
+df_regiao = load_region_data(URL_REGIAO)
 
 if not df_original.empty and not df_regiao.empty:
     soma_bruta_planilha = df_original["Montante em moeda interna"].sum()
@@ -103,21 +101,25 @@ if not df_original.empty and not df_regiao.empty:
 
     df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
 
+    # Filtros E botão recarregar (tudo na sidebar)
     st.sidebar.title("Filtros")
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
     exercicio_sel = st.sidebar.selectbox("Selecione o Exercício:", ["TODOS OS EXERCÍCIOS"] + sorted(df_merged['Exercicio'].unique()))
 
+    # Botão recarregar e mensagem na sidebar, logo abaixo dos filtros
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### Atualização de Dados")
     if st.sidebar.button("🔄 Recarregar dados"):
         st.cache_data.clear()
         st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
         st.rerun()
-    st.sidebar.caption("Clique para buscar os dados mais recentes das planilhas.")
+    st.sidebar.caption("Clique para buscar os dados mais recentes das planilhas do GitHub. Use sempre que houver atualização dos arquivos fonte.")
 
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
+
+    # ---- FIM DA SIDEBAR ----
 
     df_filt = df_merged.copy()
     if regiao_sel != "TODAS AS REGIÕES":
@@ -144,6 +146,7 @@ if not df_original.empty and not df_regiao.empty:
     else:
         soma_frmpgto_HR = 0
 
+    st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
     st.markdown(f"**Exibindo dados para:** Região: `{regiao_sel}` | Divisão: `{divisao_sel}` | Exercício: `{exercicio_sel}`")
 
@@ -264,8 +267,10 @@ if not df_original.empty and not df_regiao.empty:
         yaxis_title="Tipo de Cobrança"
     )
     fig_cobranca.update_traces(textposition='outside')
+    # Título externo
     st.markdown("## Inadimplência por Tipo de Cobrança")
     st.plotly_chart(fig_cobranca, use_container_width=True)
+    # --------------- FIM DO NOVO GRÁFICO ---------------
 
     st.markdown("### Inadimplência por Região (3D Simulado)")
     df_pie = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
@@ -293,7 +298,7 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
             st.dataframe(resumo_cli_fmt, use_container_width=True)
 
-            # ----------- GRÁFICO TOP 10 CLIENTES INADIMPLENTES -----------
+                       # ----------- GRÁFICO TOP 10 CLIENTES INADIMPLENTES -----------
             top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
             top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
 
@@ -303,7 +308,7 @@ if not df_original.empty and not df_regiao.empty:
                 y='Cliente',
                 orientation='h',
                 text='label_mk',
-                color_discrete_sequence=["#0074D9"]
+                color_discrete_sequence=["#0074D9"]  # azul clássico
             )
             fig_cli.update_layout(
                 height=500,
