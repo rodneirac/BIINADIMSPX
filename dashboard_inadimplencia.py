@@ -7,9 +7,11 @@ import time
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
-# IDs do Google Sheets
 SHEET_ID = "1ndXRYn2e15Jom44-jrYW-bfTl7m-JT--"
-GID_INADIM = "0"   # ajuste se sua aba principal tiver outro gid
+GID_INADIM = "0"  # ou outro, se sua aba principal tiver outro gid
+
+url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_INADIM}"
+df = pd.read_csv(url)
 
 # Caminho do REGIAO permanece no GitHub
 OWNER = "rodneirac"
