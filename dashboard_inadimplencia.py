@@ -19,7 +19,7 @@ LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
 # 2. ALTERADO PARA LER O ARQUIVO PRINCIPAL DO GOOGLE DRIVE
 #    COLE O ID DO SEU ARQUIVO INADIMATUAL.XLSX AQUI
-ID_ARQUIVO_DRIVE = "COLOQUE_O_ID_DO_SEU_ARQUIVO_AQUI"
+ID_ARQUIVO_DRIVE = "INADIMATUAL.xlsx"
 URL_DADOS = f"https://drive.google.com/uc?export=download&id={ID_ARQUIVO_DRIVE}"
 
 # --- FIM DA MODIFICAÇÃO ---
