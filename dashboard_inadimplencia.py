@@ -3,21 +3,21 @@ import pandas as pd
 import requests
 import plotly.express as px
 from datetime import datetime
+from io import BytesIO
 import time
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
+# IDs do Google Sheets
 SHEET_ID = "1ndXRYn2e15Jom44-jrYW-bfTl7m-JT--"
-GID_INADIM = "0"  # ou outro, se sua aba principal tiver outro gid
-
-url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_INADIM}"
-df = pd.read_csv(url)
+GID_INADIM = "0"  # Ajuste se sua aba principal for outra
 
 # Caminho do REGIAO permanece no GitHub
 OWNER = "rodneirac"
 REPO = "BIINADIMSPX"
 ARQUIVO_REGIAO = "REGIAO.xlsx"
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
+LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
 # Função para leitura da planilha Google Sheets via CSV export
 def load_google_sheet_csv(sheet_id, gid):
@@ -146,6 +146,7 @@ if not df_original.empty and not df_regiao.empty:
     else:
         soma_frmpgto_HR = 0
 
+    st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
     st.markdown(f"**Exibindo dados para:** Região: `{regiao_sel}` | Divisão: `{divisao_sel}` | Exercício: `{exercicio_sel}`")
 
