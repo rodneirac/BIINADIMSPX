@@ -8,14 +8,25 @@ import time
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
+# --- INÍCIO DA MODIFICAÇÃO ---
+
+# Variáveis para os arquivos que continuam no GitHub
 OWNER = "rodneirac"
 REPO = "BIINADIMSPX"
-ARQUIVO_DADOS = "INADIMATUAL.XLSX"
 ARQUIVO_REGIAO = "REGIAO.xlsx"
-
-URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DADOS}"
-URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
+
+# Nova URL para a base de dados principal (INADIMATUAL) vinda do Google Sheets
+# O link foi convertido para um formato de download direto
+SHEET_ID = "1ndXRYn2e15Jom44-jrYW-bfTl7m-JT--"
+SHEET_GID = "493515440"
+URL_DADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xlsx&gid={SHEET_GID}"
+
+# URL para o arquivo de Região (continua no GitHub)
+URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
+
+# --- FIM DA MODIFICAÇÃO ---
+
 
 # Função para formatação em milhões/milhares
 def label_mk(valor):
@@ -112,7 +123,7 @@ if not df_original.empty and not df_regiao.empty:
         st.cache_data.clear()
         st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
         st.rerun()
-    st.sidebar.caption("Clique para buscar os dados mais recentes das planilhas do GitHub. Use sempre que houver atualização dos arquivos fonte.")
+    st.sidebar.caption("Clique para buscar os dados mais recentes das planilhas. Use sempre que houver atualização dos arquivos fonte.")
 
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
@@ -296,7 +307,7 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
             st.dataframe(resumo_cli_fmt, use_container_width=True)
 
-                       # ----------- GRÁFICO TOP 10 CLIENTES INADIMPLENTES -----------
+                            # ----------- GRÁFICO TOP 10 CLIENTES INADIMPLENTES -----------
             top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
             top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
 
