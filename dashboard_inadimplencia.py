@@ -1,18 +1,23 @@
 import streamlit as st
 import pandas as pd
+import requests
 import plotly.express as px
 from datetime import datetime
+from io import BytesIO
 import time
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
-# Links da planilha Google Sheets (INADIMATUAL)
-SHEET_ID = "1ndXRYn2e15Jom44-jrYW-bfTl7m-JT--"
-GID = "493515440"
-URL_DADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
+OWNER = "rodneirac"
+REPO = "BIINADIMSPX"
+ARQUIVO_DADOS = "INADIMATUAL.XLSX"
+ARQUIVO_REGIAO = "REGIAO.xlsx"
 
-LOGO_URL = "https://raw.githubusercontent.com/rodneirac/BIINADIMSPX/main/logo.png"
+URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DADOS}"
+URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
+LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
+# Função para formatação em milhões/milhares
 def label_mk(valor):
     if valor >= 1_000_000:
         return f"{valor/1_000_000:.1f}M"
@@ -21,14 +26,22 @@ def label_mk(valor):
     else:
         return f"{valor:,.0f}"
 
+# Controle de última atualização
 if 'last_reload' not in st.session_state:
     st.session_state['last_reload'] = None
 
 @st.cache_data(ttl=3600)
-def load_data():
-    df = pd.read_csv(URL_DADOS)
-    df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce", dayfirst=True)
-    df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce", dayfirst=True)
+def load_data(url):
+    response = requests.get(url)
+    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
+    df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
+    df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
+    return df
+
+@st.cache_data(ttl=3600)
+def load_region_data(url):
+    response = requests.get(url)
+    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
     return df
 
 def get_division_column_name(df):
@@ -61,38 +74,54 @@ def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
 
-df_original = load_data()
+df_original = load_data(URL_DADOS)
+df_regiao = load_region_data(URL_REGIAO)
 
-if not df_original.empty:
+if not df_original.empty and not df_regiao.empty:
     soma_bruta_planilha = df_original["Montante em moeda interna"].sum()
+
     col_div_princ = get_division_column_name(df_original)
-    if not col_div_princ:
-        st.error("Erro: Coluna de divisão não encontrada.")
+    col_div_regiao = get_division_column_name(df_regiao)
+
+    if not col_div_princ or not col_div_regiao:
+        st.error("Erro Crítico: Coluna de divisão não encontrada.")
         st.stop()
 
     df_original[col_div_princ] = df_original[col_div_princ].astype(str)
-    df_merged = df_original.copy()
+    df_regiao[col_div_regiao] = df_regiao[col_div_regiao].astype(str)
+
+    df_regiao = df_regiao.drop_duplicates(subset=[col_div_regiao])
+    df_merged = pd.merge(df_original, df_regiao, on=col_div_princ, how="left")
+
+    soma_apos_merge = df_merged["Montante em moeda interna"].sum()
+    if abs(soma_bruta_planilha - soma_apos_merge) > 1:
+        st.warning(f"Soma após merge: R$ {soma_apos_merge:,.2f} difere do bruto: R$ {soma_bruta_planilha:,.2f}")
+
     df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
 
-    # Sidebar filtros
+    # Filtros E botão recarregar (tudo na sidebar)
     st.sidebar.title("Filtros")
+    regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
     exercicio_sel = st.sidebar.selectbox("Selecione o Exercício:", ["TODOS OS EXERCÍCIOS"] + sorted(df_merged['Exercicio'].unique()))
 
-    # Botão recarregar
+    # Botão recarregar e mensagem na sidebar, logo abaixo dos filtros
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### Atualização de Dados")
     if st.sidebar.button("🔄 Recarregar dados"):
         st.cache_data.clear()
         st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
         st.rerun()
-    st.sidebar.caption("Clique para buscar os dados mais recentes da planilha Google.")
+    st.sidebar.caption("Clique para buscar os dados mais recentes das planilhas do GitHub. Use sempre que houver atualização dos arquivos fonte.")
 
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
 
-    # Filtros aplicados
+    # ---- FIM DA SIDEBAR ----
+
     df_filt = df_merged.copy()
+    if regiao_sel != "TODAS AS REGIÕES":
+        df_filt = df_filt[df_filt['Região'] == regiao_sel]
     if divisao_sel != "TODAS AS DIVISÕES":
         df_filt = df_filt[df_filt[col_div_princ] == divisao_sel]
     if exercicio_sel != "TODOS OS EXERCÍCIOS":
@@ -109,7 +138,7 @@ if not df_original.empty:
     tot_inad = df_inad["Montante em moeda interna"].sum()
     tot_venc = df_venc["Montante em moeda interna"].sum()
 
-    # Indicadores
+    # NOVO: Soma dos valores onde FrmPgto é "H" ou "R"
     if "FrmPgto" in df_filt.columns:
         soma_frmpgto_HR = df_filt[df_filt["FrmPgto"].isin(["H", "R"])]["Montante em moeda interna"].sum()
     else:
@@ -117,7 +146,7 @@ if not df_original.empty:
 
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
-    st.markdown(f"**Exibindo dados para:** Divisão: `{divisao_sel}` | Exercício: `{exercicio_sel}`")
+    st.markdown(f"**Exibindo dados para:** Região: `{regiao_sel}` | Divisão: `{divisao_sel}` | Exercício: `{exercicio_sel}`")
 
     st.markdown("### Indicadores Gerais")
     c1, c2, c3 = st.columns(3)
@@ -198,7 +227,7 @@ if not df_original.empty:
     else:
         st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
-    # GRÁFICO: INADIMPLÊNCIA POR TIPO DE COBRANÇA
+    # --------------- GRÁFICO: INADIMPLÊNCIA POR TIPO DE COBRANÇA ---------------
     regra_tipo_cobranca = {
         'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
         'CARTEIRA':            ['999'],
@@ -236,19 +265,18 @@ if not df_original.empty:
         yaxis_title="Tipo de Cobrança"
     )
     fig_cobranca.update_traces(textposition='outside')
+    # Título externo
     st.markdown("## Inadimplência por Tipo de Cobrança")
     st.plotly_chart(fig_cobranca, use_container_width=True)
-    # FIM DO NOVO GRÁFICO
+    # --------------- FIM DO NOVO GRÁFICO ---------------
 
-    # GRÁFICO DE PIZZA POR REGIÃO (Opcional: retire se não usa coluna 'Região')
-    if 'Região' in df_inad.columns:
-        st.markdown("### Inadimplência por Região (3D Simulado)")
-        df_pie = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
-        fig_pie = px.pie(df_pie, names='Região', values='Montante em moeda interna',
-                         title='Participação por Região', hole=0.2)
-        fig_pie.update_traces(textposition='inside', textinfo='percent+label', pull=[0.05]*len(df_pie))
-        fig_pie.update_layout(title_font_size=16, height=600, width=800)
-        st.plotly_chart(fig_pie, use_container_width=True)
+    st.markdown("### Inadimplência por Região (3D Simulado)")
+    df_pie = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
+    fig_pie = px.pie(df_pie, names='Região', values='Montante em moeda interna',
+                     title='Participação por Região', hole=0.2)
+    fig_pie.update_traces(textposition='inside', textinfo='percent+label', pull=[0.05]*len(df_pie))
+    fig_pie.update_layout(title_font_size=16, height=600, width=800)
+    st.plotly_chart(fig_pie, use_container_width=True)
 
     with st.expander("Clique para ver o Resumo por Divisão"):
         resumo = df_inad.groupby(col_div_princ)['Montante em moeda interna'].sum().reset_index()
@@ -268,7 +296,7 @@ if not df_original.empty:
             resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
             st.dataframe(resumo_cli_fmt, use_container_width=True)
 
-            # GRÁFICO TOP 10 CLIENTES INADIMPLENTES
+            # ----------- GRÁFICO TOP 10 CLIENTES INADIMPLENTES -----------
             top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
             top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
 
@@ -278,19 +306,8 @@ if not df_original.empty:
                 y='Cliente',
                 orientation='h',
                 text='label_mk',
-                color_discrete_sequence=["#0074D9"]
+                color_discrete_sequence=["#0074D9"]  # azul clássico
             )
             fig_cli.update_layout(
                 height=500,
-                yaxis_title='',
-                xaxis_title='Valor Inadimplente',
-                showlegend=False,
-                title='Top 10 Clientes Inadimplentes'
-            )
-            fig_cli.update_traces(textposition='outside')
-            st.plotly_chart(fig_cli, use_container_width=True)
-        else:
-            st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
-
-else:
-    st.error("Dados não disponíveis. Verifique se a planilha está compartilhada para 'Qualquer pessoa com o link'.")
+                yaxis_title
