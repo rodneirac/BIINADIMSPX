@@ -8,35 +8,42 @@ import time
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
+# --- CONFIGURAÇÃO DOS DADOS ---
+# Tabela principal (Google Sheets)
 SHEET_ID = "1ndXRYn2e15Jom44-jrYW-bfTl7m-JT--"
-GID_INADIM = "493515440"  # use o gid correto da sua aba
+GID_INADIM = "493515440"  # <--- GID da sua aba principal (ajuste conforme necessário)
+URL_DADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_INADIM}"
 
-url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_INADIM}"
-df = pd.read_csv(url)
-
-# Caminho do REGIAO permanece no GitHub
+# Tabela de regiões (GitHub)
 OWNER = "rodneirac"
 REPO = "BIINADIMSPX"
 ARQUIVO_REGIAO = "REGIAO.xlsx"
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
-# Função para leitura da planilha Google Sheets via CSV export
-def load_google_sheet_csv(sheet_id, gid):
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-    df = pd.read_csv(url)
-    return df
+# Função para formatação em milhões/milhares
+def label_mk(valor):
+    if valor >= 1_000_000:
+        return f"{valor/1_000_000:.1f}M"
+    elif valor >= 1_000:
+        return f"{valor/1_000:.1f}K"
+    else:
+        return f"{valor:,.0f}"
 
+if 'last_reload' not in st.session_state:
+    st.session_state['last_reload'] = None
+
+# Funções de leitura
 @st.cache_data(ttl=3600)
 def load_data():
-    df = load_google_sheet_csv(SHEET_ID, GID_INADIM)
+    df = pd.read_csv(URL_DADOS)
     df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
     df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
     return df
 
 @st.cache_data(ttl=3600)
-def load_region_data():
-    response = requests.get(URL_REGIAO)
+def load_region_data(url):
+    response = requests.get(url)
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
     return df
 
@@ -70,20 +77,9 @@ def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
 
-# Função para formatação em milhões/milhares
-def label_mk(valor):
-    if valor >= 1_000_000:
-        return f"{valor/1_000_000:.1f}M"
-    elif valor >= 1_000:
-        return f"{valor/1_000:.1f}K"
-    else:
-        return f"{valor:,.0f}"
-
-if 'last_reload' not in st.session_state:
-    st.session_state['last_reload'] = None
-
+# --- CARREGAMENTO DOS DADOS ---
 df_original = load_data()
-df_regiao = load_region_data()
+df_regiao = load_region_data(URL_REGIAO)
 
 if not df_original.empty and not df_regiao.empty:
     soma_bruta_planilha = df_original["Montante em moeda interna"].sum()
@@ -107,21 +103,25 @@ if not df_original.empty and not df_regiao.empty:
 
     df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
 
+    # Filtros E botão recarregar (tudo na sidebar)
     st.sidebar.title("Filtros")
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
     exercicio_sel = st.sidebar.selectbox("Selecione o Exercício:", ["TODOS OS EXERCÍCIOS"] + sorted(df_merged['Exercicio'].unique()))
 
+    # Botão recarregar e mensagem na sidebar, logo abaixo dos filtros
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### Atualização de Dados")
     if st.sidebar.button("🔄 Recarregar dados"):
         st.cache_data.clear()
         st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
         st.rerun()
-    st.sidebar.caption("Clique para buscar os dados mais recentes das planilhas.")
+    st.sidebar.caption("Clique para buscar os dados mais recentes das planilhas. Use sempre que houver atualização dos arquivos fonte.")
 
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
+
+    # ---- FIM DA SIDEBAR ----
 
     df_filt = df_merged.copy()
     if regiao_sel != "TODAS AS REGIÕES":
