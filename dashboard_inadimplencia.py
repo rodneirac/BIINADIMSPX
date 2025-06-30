@@ -3,25 +3,26 @@ import pandas as pd
 import requests
 import plotly.express as px
 from datetime import datetime
-from io import BytesIO
+import numpy as np
 import time
+from io import BytesIO
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
-# --- CONFIGURAÇÃO DOS DADOS ---
-# Tabela principal (Google Sheets)
+# ---- CONFIGURAÇÃO ----
 SHEET_ID = "1ndXRYn2e15Jom44-jrYW-bfTl7m-JT--"
-GID_INADIM = "493515440"  # <--- GID da sua aba principal (ajuste conforme necessário)
-URL_DADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_INADIM}"
+GID_INADIM = "0"  # ou outro, se sua aba principal tiver outro gid
 
-# Tabela de regiões (GitHub)
+# URL Google Sheets
+URL_DADOS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_INADIM}"
+# Região pode continuar do GitHub
 OWNER = "rodneirac"
 REPO = "BIINADIMSPX"
 ARQUIVO_REGIAO = "REGIAO.xlsx"
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
-# Função para formatação em milhões/milhares
+# ---- FUNÇÕES AUXILIARES ----
 def label_mk(valor):
     if valor >= 1_000_000:
         return f"{valor/1_000_000:.1f}M"
@@ -29,23 +30,6 @@ def label_mk(valor):
         return f"{valor/1_000:.1f}K"
     else:
         return f"{valor:,.0f}"
-
-if 'last_reload' not in st.session_state:
-    st.session_state['last_reload'] = None
-
-# Funções de leitura
-@st.cache_data(ttl=3600)
-def load_data():
-    df = pd.read_csv(URL_DADOS)
-    df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
-    df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
-    return df
-
-@st.cache_data(ttl=3600)
-def load_region_data(url):
-    response = requests.get(url)
-    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
-    return df
 
 def get_division_column_name(df):
     if 'Divisao' in df.columns:
@@ -77,13 +61,38 @@ def classifica_prazo(dias):
     if dias <= 60: return "Curto Prazo"
     else: return "Longo Prazo"
 
-# --- CARREGAMENTO DOS DADOS ---
+def fmt(v): 
+    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+# ---- CONTROLE DE RELOAD ----
+if 'last_reload' not in st.session_state:
+    st.session_state['last_reload'] = None
+
+# ---- LOAD DATA ----
+@st.cache_data(ttl=3600)
+def load_data():
+    # Google Sheets (CSV)
+    df = pd.read_csv(URL_DADOS, sep=",", encoding="utf-8")
+    # Tratar valores como numérico (principalmente "Montante em moeda interna")
+    if "Montante em moeda interna" in df.columns:
+        df["Montante em moeda interna"] = pd.to_numeric(df["Montante em moeda interna"], errors="coerce")
+    # Tratar datas
+    if "Data do documento" in df.columns:
+        df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce", dayfirst=False)
+    if "Vencimento líquido" in df.columns:
+        df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce", dayfirst=False)
+    return df
+
+@st.cache_data(ttl=3600)
+def load_region_data(url):
+    response = requests.get(url)
+    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
+    return df
+
 df_original = load_data()
 df_regiao = load_region_data(URL_REGIAO)
 
 if not df_original.empty and not df_regiao.empty:
-    soma_bruta_planilha = df_original["Montante em moeda interna"].sum()
-
     col_div_princ = get_division_column_name(df_original)
     col_div_regiao = get_division_column_name(df_regiao)
 
@@ -97,32 +106,33 @@ if not df_original.empty and not df_regiao.empty:
     df_regiao = df_regiao.drop_duplicates(subset=[col_div_regiao])
     df_merged = pd.merge(df_original, df_regiao, on=col_div_princ, how="left")
 
-    soma_apos_merge = df_merged["Montante em moeda interna"].sum()
+    # Corrige possíveis NaN em soma!
+    soma_bruta_planilha = pd.to_numeric(df_original["Montante em moeda interna"], errors="coerce").sum()
+    soma_apos_merge = pd.to_numeric(df_merged["Montante em moeda interna"], errors="coerce").sum()
+    if np.isnan(soma_bruta_planilha): soma_bruta_planilha = 0
+    if np.isnan(soma_apos_merge): soma_apos_merge = 0
+
     if abs(soma_bruta_planilha - soma_apos_merge) > 1:
         st.warning(f"Soma após merge: R$ {soma_apos_merge:,.2f} difere do bruto: R$ {soma_bruta_planilha:,.2f}")
 
     df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
 
-    # Filtros E botão recarregar (tudo na sidebar)
+    # SIDEBAR - filtros + reload
     st.sidebar.title("Filtros")
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
     exercicio_sel = st.sidebar.selectbox("Selecione o Exercício:", ["TODOS OS EXERCÍCIOS"] + sorted(df_merged['Exercicio'].unique()))
-
-    # Botão recarregar e mensagem na sidebar, logo abaixo dos filtros
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### Atualização de Dados")
     if st.sidebar.button("🔄 Recarregar dados"):
         st.cache_data.clear()
         st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
         st.rerun()
-    st.sidebar.caption("Clique para buscar os dados mais recentes das planilhas. Use sempre que houver atualização dos arquivos fonte.")
-
+    st.sidebar.caption("Clique para buscar os dados mais recentes das planilhas.")
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
 
-    # ---- FIM DA SIDEBAR ----
-
+    # ---- APLICAÇÃO DOS FILTROS ----
     df_filt = df_merged.copy()
     if regiao_sel != "TODAS AS REGIÕES":
         df_filt = df_filt[df_filt['Região'] == regiao_sel]
@@ -139,26 +149,24 @@ if not df_original.empty and not df_regiao.empty:
     df_inad = df_filt[df_filt["Dias de atraso"] >= 1].copy()
     df_venc = df_filt[df_filt["Dias de atraso"] <= 0].copy()
 
-    tot_inad = df_inad["Montante em moeda interna"].sum()
-    tot_venc = df_venc["Montante em moeda interna"].sum()
+    tot_inad = pd.to_numeric(df_inad["Montante em moeda interna"], errors="coerce").sum()
+    tot_venc = pd.to_numeric(df_venc["Montante em moeda interna"], errors="coerce").sum()
 
-    # NOVO: Soma dos valores onde FrmPgto é "H" ou "R"
+    # Venda Antecipada Inadimplente
     if "FrmPgto" in df_filt.columns:
         soma_frmpgto_HR = df_filt[df_filt["FrmPgto"].isin(["H", "R"])]["Montante em moeda interna"].sum()
     else:
         soma_frmpgto_HR = 0
 
+    # ---- INÍCIO DASH ----
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
     st.markdown(f"**Exibindo dados para:** Região: `{regiao_sel}` | Divisão: `{divisao_sel}` | Exercício: `{exercicio_sel}`")
-
     st.markdown("### Indicadores Gerais")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Vlr Total Inadimplente", f"R$ {soma_bruta_planilha:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    c2.metric("Vlr Inadimplente", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    c3.metric("Venda Antecipada Inadimplente", f"R$ {soma_frmpgto_HR:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-
-    def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    c1.metric("Vlr Total Inadimplente", fmt(soma_bruta_planilha))
+    c2.metric("Vlr Inadimplente", fmt(tot_inad))
+    c3.metric("Venda Antecipada Inadimplente", fmt(soma_frmpgto_HR))
 
     with st.expander("🔍 Venda Antecipada Inadimplente – Detalhamento por Filial e Cliente"):
         if "FrmPgto" in df_filt.columns:
@@ -196,7 +204,6 @@ if not df_original.empty and not df_regiao.empty:
     pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"],
                            values="Montante em moeda interna", columns="Prazo",
                            aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
-
     st.dataframe(
         pivot.style.format({col: fmt for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
         use_container_width=True
@@ -206,22 +213,18 @@ if not df_original.empty and not df_regiao.empty:
     df_outros = df_inad[df_inad['Exercicio'] != '2025']
     df_outros = df_outros.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
     df_outros.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
-
     df_2025 = df_inad[df_inad['Exercicio'] == '2025']
     df_2025 = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
     df_2025 = df_2025[df_2025['Faixa'] != '']
     df_2025['Categoria'] = '2025 - ' + df_2025['Faixa']
     df_2025.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
-
     df_graf = pd.concat([df_outros, df_2025[['Categoria', 'Valor']]], ignore_index=True)
-
     if not df_graf.empty:
         color_map = {cat: '#EA4335' for cat in df_outros['Categoria'].unique()}
         cores_2025 = ['#FFC107', '#FF9800', '#F57C00']
         categorias_2025 = sorted(df_2025['Categoria'].unique())
         for i, cat in enumerate(categorias_2025):
             color_map[cat] = cores_2025[i % len(cores_2025)]
-
         fig_bar = px.bar(df_graf, x='Categoria', y='Valor',
                          text=df_graf['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
                          color='Categoria', color_discrete_map=color_map)
@@ -231,7 +234,7 @@ if not df_original.empty and not df_regiao.empty:
     else:
         st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
-    # --------------- GRÁFICO: INADIMPLÊNCIA POR TIPO DE COBRANÇA ---------------
+    # GRÁFICO: INADIMPLÊNCIA POR TIPO DE COBRANÇA
     regra_tipo_cobranca = {
         'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
         'CARTEIRA':            ['999'],
@@ -308,7 +311,7 @@ if not df_original.empty and not df_regiao.empty:
                 y='Cliente',
                 orientation='h',
                 text='label_mk',
-                color_discrete_sequence=["#0074D9"]
+                color_discrete_sequence=["#0074D9"]  # azul clássico
             )
             fig_cli.update_layout(
                 height=500,
@@ -322,6 +325,5 @@ if not df_original.empty and not df_regiao.empty:
             # ----------- FIM DO GRÁFICO TOP 10 -----------
         else:
             st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
-
 else:
     st.error("Dados não disponíveis.")
