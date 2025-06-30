@@ -8,14 +8,22 @@ import time
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
+# --- INÍCIO DA MODIFICAÇÃO ---
+
+# 1. MANTIDOS DO GITHUB (NÃO MEXER)
 OWNER = "rodneirac"
 REPO = "BIINADIMSPX"
-ARQUIVO_DADOS = "INADIMATUAL.XLSX"
 ARQUIVO_REGIAO = "REGIAO.xlsx"
-
-URL_DADOS = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_DADOS}"
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
+
+# 2. ALTERADO PARA LER O ARQUIVO PRINCIPAL DO GOOGLE DRIVE
+#    COLE O ID DO SEU ARQUIVO INADIMATUAL.XLSX AQUI
+ID_ARQUIVO_DRIVE = "COLOQUE_O_ID_DO_SEU_ARQUIVO_AQUI"
+URL_DADOS = f"https://drive.google.com/uc?export=download&id={ID_ARQUIVO_DRIVE}"
+
+# --- FIM DA MODIFICAÇÃO ---
+
 
 # Função para formatação em milhões/milhares
 def label_mk(valor):
@@ -30,13 +38,24 @@ def label_mk(valor):
 if 'last_reload' not in st.session_state:
     st.session_state['last_reload'] = None
 
+# Função de carregamento de dados principal (com tratamento de erros melhorado)
 @st.cache_data(ttl=3600)
 def load_data(url):
-    response = requests.get(url)
-    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
-    df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
-    df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
-    return df
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Gera um erro para respostas ruins (4xx ou 5xx)
+        df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
+        df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
+        df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
+        return df
+    except requests.exceptions.RequestException as e:
+        st.error(f"Erro de rede ao tentar baixar o arquivo do Google Drive: {e}")
+        st.info("Verifique sua conexão e se o ID do arquivo está correto e compartilhado como 'Qualquer pessoa com o link'.")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Erro ao ler o arquivo Excel: {e}")
+        st.info("O arquivo no Google Drive pode estar corrompido ou em um formato inesperado.")
+        return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
 def load_region_data(url):
@@ -64,6 +83,7 @@ def classifica_exercicio(data):
     else: return "Futuro"
 
 def classifica_faixa(exercicio, dias):
+    # Considerando a data atual (30/06/2025), a lógica para o exercício de 2025 permanece relevante.
     if exercicio == "2025":
         if dias <= 30: return "Até 30 dias"
         elif dias <= 60: return "entre 31 e 60 dias"
@@ -112,7 +132,8 @@ if not df_original.empty and not df_regiao.empty:
         st.cache_data.clear()
         st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
         st.rerun()
-    st.sidebar.caption("Clique para buscar os dados mais recentes das planilhas do GitHub. Use sempre que houver atualização dos arquivos fonte.")
+    # Texto da legenda ATUALIZADO
+    st.sidebar.caption("Clique para buscar os dados mais recentes das fontes de dados (Google Drive e GitHub).")
 
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
@@ -138,7 +159,6 @@ if not df_original.empty and not df_regiao.empty:
     tot_inad = df_inad["Montante em moeda interna"].sum()
     tot_venc = df_venc["Montante em moeda interna"].sum()
 
-    # NOVO: Soma dos valores onde FrmPgto é "H" ou "R"
     if "FrmPgto" in df_filt.columns:
         soma_frmpgto_HR = df_filt[df_filt["FrmPgto"].isin(["H", "R"])]["Montante em moeda interna"].sum()
     else:
@@ -227,7 +247,6 @@ if not df_original.empty and not df_regiao.empty:
     else:
         st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
-    # --------------- GRÁFICO: INADIMPLÊNCIA POR TIPO DE COBRANÇA ---------------
     regra_tipo_cobranca = {
         'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
         'CARTEIRA':            ['999'],
@@ -265,10 +284,8 @@ if not df_original.empty and not df_regiao.empty:
         yaxis_title="Tipo de Cobrança"
     )
     fig_cobranca.update_traces(textposition='outside')
-    # Título externo
     st.markdown("## Inadimplência por Tipo de Cobrança")
     st.plotly_chart(fig_cobranca, use_container_width=True)
-    # --------------- FIM DO NOVO GRÁFICO ---------------
 
     st.markdown("### Inadimplência por Região (3D Simulado)")
     df_pie = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
@@ -296,7 +313,6 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
             st.dataframe(resumo_cli_fmt, use_container_width=True)
 
-                       # ----------- GRÁFICO TOP 10 CLIENTES INADIMPLENTES -----------
             top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
             top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
 
@@ -306,7 +322,7 @@ if not df_original.empty and not df_regiao.empty:
                 y='Cliente',
                 orientation='h',
                 text='label_mk',
-                color_discrete_sequence=["#0074D9"]  # azul clássico
+                color_discrete_sequence=["#0074D9"]
             )
             fig_cli.update_layout(
                 height=500,
@@ -317,9 +333,8 @@ if not df_original.empty and not df_regiao.empty:
             )
             fig_cli.update_traces(textposition='outside')
             st.plotly_chart(fig_cli, use_container_width=True)
-            # ----------- FIM DO GRÁFICO TOP 10 -----------
         else:
             st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
 
 else:
-    st.error("Dados não disponíveis.")
+    st.error("Dados não disponíveis ou erro no carregamento.")
