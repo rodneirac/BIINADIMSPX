@@ -1,5 +1,3 @@
-funcionou. Segue codigo completo que está funcionando. Apreda o novamente para ajustarmos uma nova atualização Via google drive.
-
 import streamlit as st
 import pandas as pd
 import requests
