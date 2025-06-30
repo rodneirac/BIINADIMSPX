@@ -8,7 +8,7 @@ import time
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
-# --- INÍCIO DA MODIFICAÇÃO ---
+# --- CONFIGURAÇÃO DAS FONTES DE DADOS ---
 
 # 1. MANTIDOS DO GITHUB (NÃO MEXER)
 OWNER = "rodneirac"
@@ -17,12 +17,13 @@ ARQUIVO_REGIAO = "REGIAO.xlsx"
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
-# 2. ALTERADO PARA LER O ARQUIVO PRINCIPAL DO GOOGLE DRIVE
-#    COLE O ID DO SEU ARQUIVO INADIMATUAL.XLSX AQUI
-ID_ARQUIVO_DRIVE = "INADIMATUAL.xlsx"
-URL_DADOS = f"https://drive.google.com/uc?export=download&id={ID_ARQUIVO_DRIVE}"
+# 2. DADOS PRINCIPAIS LIDOS DA SUA PLANILHA GOOGLE
+#    O ID FOI EXTRAÍDO DO LINK QUE VOCÊ ENVIOU.
+ID_PLANILHA_GOOGLE = "1ndXRYn2e15Jom44-jrYW-bfTl7m-JT--"
+URL_DADOS = f"https://docs.google.com/spreadsheets/d/{ID_PLANILHA_GOOGLE}/export?format=xlsx"
 
-# --- FIM DA MODIFICAÇÃO ---
+
+# --- FIM DA CONFIGURAÇÃO ---
 
 
 # Função para formatação em milhões/milhares
@@ -38,23 +39,24 @@ def label_mk(valor):
 if 'last_reload' not in st.session_state:
     st.session_state['last_reload'] = None
 
-# Função de carregamento de dados principal (com tratamento de erros melhorado)
+# Função de carregamento de dados principal (com tratamento de erros)
 @st.cache_data(ttl=3600)
 def load_data(url):
     try:
         response = requests.get(url)
-        response.raise_for_status()  # Gera um erro para respostas ruins (4xx ou 5xx)
+        response.raise_for_status()
+        # Lê a primeira aba da Planilha Google, que é exportada como um arquivo Excel em memória
         df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
         df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
         df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
         return df
     except requests.exceptions.RequestException as e:
-        st.error(f"Erro de rede ao tentar baixar o arquivo do Google Drive: {e}")
-        st.info("Verifique sua conexão e se o ID do arquivo está correto e compartilhado como 'Qualquer pessoa com o link'.")
+        st.error(f"Erro de rede ao tentar baixar a planilha do Google: {e}")
+        st.info("Verifique sua conexão e se a planilha está compartilhada como 'Qualquer pessoa com o link'.")
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"Erro ao ler o arquivo Excel: {e}")
-        st.info("O arquivo no Google Drive pode estar corrompido ou em um formato inesperado.")
+        st.error(f"Erro ao ler os dados da planilha: {e}")
+        st.info("A planilha pode estar vazia, corrompida ou a primeira aba pode não conter os dados esperados.")
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
@@ -83,7 +85,6 @@ def classifica_exercicio(data):
     else: return "Futuro"
 
 def classifica_faixa(exercicio, dias):
-    # Considerando a data atual (30/06/2025), a lógica para o exercício de 2025 permanece relevante.
     if exercicio == "2025":
         if dias <= 30: return "Até 30 dias"
         elif dias <= 60: return "entre 31 e 60 dias"
@@ -119,26 +120,21 @@ if not df_original.empty and not df_regiao.empty:
 
     df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
 
-    # Filtros E botão recarregar (tudo na sidebar)
     st.sidebar.title("Filtros")
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
     exercicio_sel = st.sidebar.selectbox("Selecione o Exercício:", ["TODOS OS EXERCÍCIOS"] + sorted(df_merged['Exercicio'].unique()))
 
-    # Botão recarregar e mensagem na sidebar, logo abaixo dos filtros
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### Atualização de Dados")
     if st.sidebar.button("🔄 Recarregar dados"):
         st.cache_data.clear()
         st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
         st.rerun()
-    # Texto da legenda ATUALIZADO
     st.sidebar.caption("Clique para buscar os dados mais recentes das fontes de dados (Google Drive e GitHub).")
 
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
-
-    # ---- FIM DA SIDEBAR ----
 
     df_filt = df_merged.copy()
     if regiao_sel != "TODAS AS REGIÕES":
