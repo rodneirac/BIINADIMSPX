@@ -291,39 +291,41 @@ if not df_original.empty and not df_regiao.empty:
         resumo['Valor Inadimplente'] = resumo['Valor Inadimplente'].apply(fmt)
         st.dataframe(resumo, use_container_width=True)
 
-    with st.expander("Clique para ver o Resumo por Cliente"):
-        if 'Nome 1' in df_inad.columns:
-            resumo_cli = df_inad.groupby('Nome 1')['Montante em moeda interna'].sum().reset_index()
-            resumo_cli.rename(columns={'Nome 1': 'Cliente', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
-            resumo_cli['% do Total'] = resumo_cli['Valor Inadimplente'] / tot_inad * 100
-            resumo_cli = resumo_cli.sort_values(by='Valor Inadimplente', ascending=False)
-            resumo_cli_fmt = resumo_cli.copy()
-            resumo_cli_fmt['Valor Inadimplente'] = resumo_cli_fmt['Valor Inadimplente'].apply(fmt)
-            resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
-            st.dataframe(resumo_cli_fmt, use_container_width=True)
+with st.expander("Clique para ver o Resumo por Cliente"):
+    if 'Nome 1' in df_inad.columns:
+        resumo_cli = df_inad.groupby('Nome 1')['Montante em moeda interna'].sum().reset_index()
+        resumo_cli.rename(columns={'Nome 1': 'Cliente', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
+        resumo_cli['% do Total'] = resumo_cli['Valor Inadimplente'] / tot_inad * 100
+        resumo_cli = resumo_cli.sort_values(by='Valor Inadimplente', ascending=False)
+        resumo_cli_fmt = resumo_cli.copy()
+        resumo_cli_fmt['Valor Inadimplente'] = resumo_cli_fmt['Valor Inadimplente'].apply(fmt)
+        resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
+        st.dataframe(resumo_cli_fmt, use_container_width=True)
 
-            top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
-            top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
+        top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
+        top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
 
-            fig_cli = px.bar(
-                top_n,
-                x='Valor Inadimplente',
-                y='Cliente',
-                orientation='h',
-                text='label_mk',
-                color_discrete_sequence=["#0074D9"]
-            )
-            fig_cli.update_layout(
-                height=500,
-                yaxis_title='',
-                xaxis_title='Valor Inadimplente',
-                showlegend=False,
-                title='Top 10 Clientes Inadimplentes'
-            )
-            fig_cli.update_traces(textposition='outside')
-            st.plotly_chart(fig_cli, use_container_width=True)
+        fig_cli = px.bar(
+            top_n,
+            x='Valor Inadimplente',
+            y='Cliente',
+            orientation='h',
+            text='label_mk',
+            color_discrete_sequence=["#0074D9"]
+        )
+        fig_cli.update_layout(
+            height=500,
+            yaxis_title='',
+            xaxis_title='Valor Inadimplente',
+            showlegend=False,
+            title='Top 10 Clientes Inadimplentes'
+        )
+        fig_cli.update_traces(textposition='outside')
+        st.plotly_chart(fig_cli, use_container_width=True)
+    else:
+        st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
 
-        # ==== GRAFICOS DE GAUGE ====
+# ==== GRAFICOS DE GAUGE (fora do expander, SEM INDENTAÇÃO) ====
 import plotly.graph_objects as go
 
 def gauge_chart(percent, title):
@@ -379,9 +381,4 @@ with c2:
 
 # Salva snapshot atualizado para próxima execução
 df_inad.to_csv(snapshot, index=False)
-
-        else:
-            st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
-
-else:
-    st.error("Dados não disponíveis ou erro no carregamento.")
+   
