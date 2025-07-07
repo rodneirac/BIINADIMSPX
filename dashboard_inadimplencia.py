@@ -291,6 +291,79 @@ if not df_original.empty and not df_regiao.empty:
     fig_pie.update_layout(title_font_size=16, height=600, width=800)
     st.plotly_chart(fig_pie, use_container_width=True)
 
+    import os
+import plotly.graph_objects as go
+
+# ... (restante do seu código até o gráfico Top 10)
+
+# === GAUGE DE RECUPERAÇÃO E NOVOS INADIMPLENTES ===
+
+def gauge_chart(percent, title):
+    fig = go.Figure(go.Indicator(
+        mode = "gauge+number",
+        value = percent,
+        number = {'suffix': "%"},
+        title = {'text': title},
+        gauge = {
+            'axis': {'range': [0, 100]},
+            'bar': {'color': "#24292F"},
+            'steps' : [
+                {'range': [0, 50], 'color': "#B03A2E"},
+                {'range': [50, 80], 'color': "#F7DC6F"},
+                {'range': [80, 100], 'color': "#1ABC9C"},
+            ],
+        }
+    ))
+    fig.update_layout(margin=dict(l=20, r=20, t=60, b=20), height=300)
+    return fig
+
+# Gera ID único por linha (igual sugerido antes)
+id_cols = ["Tipo de documento", "Referência", "Conta", "Divisão", "Banco da empresa", "Vencimento líquido"]
+df_inad["ID"] = df_inad[id_cols].astype(str).agg("_".join, axis=1)
+
+snapshot = "snapshot_inad.csv"
+
+# Valores default
+valor_quitado = 0
+valor_novos_inad = 0
+perc_recuperado = 0
+perc_novos_inad = 0
+
+# Carrega snapshot antigo, compara, calcula
+if os.path.exists(snapshot):
+    df_old = pd.read_csv(snapshot)
+    if "ID" not in df_old.columns:
+        # Cria ID se não existir no snapshot antigo
+        df_old["ID"] = df_old[id_cols].astype(str).agg("_".join, axis=1)
+    antigos = set(df_old["ID"])
+    novos = set(df_inad["ID"])
+    quitados = antigos - novos
+    novos_inad = novos - antigos
+    valor_quitado = df_old[df_old["ID"].isin(quitados)]["Montante em moeda interna"].sum()
+    valor_novos_inad = df_inad[df_inad["ID"].isin(novos_inad)]["Montante em moeda interna"].sum()
+    # Percentual: base é o total anterior e total atual
+    total_antigo = df_old["Montante em moeda interna"].sum()
+    total_novo = df_inad["Montante em moeda interna"].sum()
+    perc_recuperado = (valor_quitado / total_antigo * 100) if total_antigo else 0
+    perc_novos_inad = (valor_novos_inad / total_novo * 100) if total_novo else 0
+
+else:
+    # Primeira execução (sem snapshot)
+    pass
+
+# Exibe os gauges
+st.markdown("### Indicadores Dinâmicos de Inadimplência (vs Snapshot Anterior)")
+c1, c2 = st.columns(2)
+with c1:
+    st.plotly_chart(gauge_chart(perc_recuperado, f"Recuperação de Inadimplentes"), use_container_width=True)
+    st.markdown(f"**Valor Recuperado:** R$ {valor_quitado:,.2f}")
+with c2:
+    st.plotly_chart(gauge_chart(perc_novos_inad, f"Novos Inadimplentes"), use_container_width=True)
+    st.markdown(f"**Valor Novos Inadimplentes:** R$ {valor_novos_inad:,.2f}")
+
+# Por fim, sempre salva o novo snapshot para a próxima comparação
+df_inad.to_csv(snapshot, index=False)
+
     with st.expander("Clique para ver o Resumo por Divisão"):
         resumo = df_inad.groupby(col_div_princ)['Montante em moeda interna'].sum().reset_index()
         resumo.rename(columns={col_div_princ: 'Divisão', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
