@@ -6,9 +6,6 @@ import plotly.graph_objects as go
 from datetime import datetime
 from io import BytesIO
 import time
-import os
-import json
-import hashlib
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
@@ -21,6 +18,9 @@ LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
 ID_PLANILHA_GOOGLE = "1ndXRYn2e15Jom44-jrYW-bfTl7m-JT--"
 URL_DADOS = f"https://docs.google.com/spreadsheets/d/{ID_PLANILHA_GOOGLE}/export?format=xlsx"
+
+ID_PLANILHA_HIST = "1xxLuMIudxIIvqe_9so3I3LYiEubvaRIM"
+URL_HIST = f"https://docs.google.com/spreadsheets/d/{ID_PLANILHA_HIST}/export?format=xlsx"
 # --- FIM DA CONFIGURAÇÃO ---
 
 def label_mk(valor):
@@ -43,13 +43,7 @@ def load_data(url):
         df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
         df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
         return df
-    except requests.exceptions.RequestException as e:
-        st.error(f"Erro de rede ao tentar baixar a planilha do Google: {e}")
-        st.info("Verifique sua conexão e se a planilha está compartilhada como 'Qualquer pessoa com o link'.")
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Erro ao ler os dados da planilha: {e}")
-        st.info("A planilha pode estar vazia, corrompida ou a primeira aba pode não conter os dados esperados.")
+    except:
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
@@ -57,6 +51,18 @@ def load_region_data(url):
     response = requests.get(url)
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
     return df
+
+@st.cache_data(ttl=3600)
+def load_hist_data(url):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
+        df["Data do documento"] = pd.to_datetime(df["Data do documento"], errors="coerce")
+        df["Vencimento líquido"] = pd.to_datetime(df["Vencimento líquido"], errors="coerce")
+        return df
+    except:
+        return pd.DataFrame()
 
 def get_division_column_name(df):
     if 'Divisao' in df.columns:
@@ -90,16 +96,6 @@ def classifica_prazo(dias):
 
 df_original = load_data(URL_DADOS)
 df_regiao = load_region_data(URL_REGIAO)
-
-def hash_dataframe(df):
-    """Gera um hash único do DataFrame de inadimplentes para detectar mudanças."""
-    # Ordena as linhas para o hash não variar caso só mude a ordem
-    relevant_cols = ["Tipo de documento", "Referência", "Conta", "Divisão", "Banco da empresa", "Vencimento líquido", "Montante em moeda interna"]
-    if not all(col in df.columns for col in relevant_cols):
-        return None
-    df_sorted = df[relevant_cols].sort_values(by=relevant_cols).reset_index(drop=True)
-    data_bytes = pd.util.hash_pandas_object(df_sorted).values.tobytes()
-    return hashlib.md5(data_bytes).hexdigest()
 
 if not df_original.empty and not df_regiao.empty:
     soma_bruta_planilha = df_original["Montante em moeda interna"].sum()
@@ -325,8 +321,7 @@ with st.expander("Clique para ver o Resumo por Cliente"):
     else:
         st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
 
-# ==== GRAFICOS DE GAUGE (fora do expander, SEM INDENTAÇÃO) ====
-
+# ==== GRAFICOS DE GAUGE USANDO HISTÓRICO DO GOOGLE DRIVE ====
 def gauge_chart(percent, title):
     fig = go.Figure(go.Indicator(
         mode = "gauge+number",
@@ -348,69 +343,25 @@ def gauge_chart(percent, title):
 
 id_cols = ["Tipo de documento", "Referência", "Conta", "Divisão", "Banco da empresa", "Vencimento líquido"]
 df_inad["ID"] = df_inad[id_cols].astype(str).agg("_".join, axis=1)
-snapshot = "snapshot_inad.csv"
-indicador_file = "indicadores_gauge.json"
-
+df_hist = load_hist_data(URL_HIST)
 valor_quitado = 0
 valor_novos_inad = 0
 perc_recuperado = 0
 perc_novos_inad = 0
 
-df_hash = hash_dataframe(df_inad)
-
-indicadores_prev = None
-if os.path.exists(indicador_file):
-    with open(indicador_file, "r", encoding="utf-8") as f:
-        try:
-            indicadores_prev = json.load(f)
-        except Exception:
-            indicadores_prev = None
-
-# Lógica do snapshot
-if os.path.exists(snapshot):
-    df_old = pd.read_csv(snapshot)
-    if "ID" not in df_old.columns:
-        df_old["ID"] = df_old[id_cols].astype(str).agg("_".join, axis=1)
-    antigos = set(df_old["ID"])
+if not df_hist.empty:
+    if "ID" not in df_hist.columns:
+        df_hist["ID"] = df_hist[id_cols].astype(str).agg("_".join, axis=1)
+    antigos = set(df_hist["ID"])
     novos = set(df_inad["ID"])
     quitados = antigos - novos
     novos_inad = novos - antigos
-    valor_quitado = df_old[df_old["ID"].isin(quitados)]["Montante em moeda interna"].sum()
+    valor_quitado = df_hist[df_hist["ID"].isin(quitados)]["Montante em moeda interna"].sum()
     valor_novos_inad = df_inad[df_inad["ID"].isin(novos_inad)]["Montante em moeda interna"].sum()
-    total_antigo = df_old["Montante em moeda interna"].sum()
+    total_antigo = df_hist["Montante em moeda interna"].sum()
     total_novo = df_inad["Montante em moeda interna"].sum()
     perc_recuperado = (valor_quitado / total_antigo * 100) if total_antigo else 0
     perc_novos_inad = (valor_novos_inad / total_novo * 100) if total_novo else 0
-    # DETECTA se mudou comparando o hash:
-    snapshot_hash = None
-    try:
-        snapshot_hash = hash_dataframe(df_old)
-    except Exception:
-        pass
-    if snapshot_hash and snapshot_hash == df_hash and indicadores_prev:
-        # DADOS IGUAIS, USA INDICADOR ANTERIOR
-        valor_quitado = indicadores_prev.get("valor_quitado", 0)
-        valor_novos_inad = indicadores_prev.get("valor_novos_inad", 0)
-        perc_recuperado = indicadores_prev.get("perc_recuperado", 0)
-        perc_novos_inad = indicadores_prev.get("perc_novos_inad", 0)
-    else:
-        # SALVA NOVO INDICADOR
-        with open(indicador_file, "w", encoding="utf-8") as f:
-            json.dump({
-                "valor_quitado": valor_quitado,
-                "valor_novos_inad": valor_novos_inad,
-                "perc_recuperado": perc_recuperado,
-                "perc_novos_inad": perc_novos_inad
-            }, f)
-else:
-    # Primeira execução: salva o indicador inicial
-    with open(indicador_file, "w", encoding="utf-8") as f:
-        json.dump({
-            "valor_quitado": valor_quitado,
-            "valor_novos_inad": valor_novos_inad,
-            "perc_recuperado": perc_recuperado,
-            "perc_novos_inad": perc_novos_inad
-        }, f)
 
 st.markdown("### Indicadores Dinâmicos de Inadimplência (Comparativo com a última versão dos dados)")
 c1, c2 = st.columns(2)
@@ -420,6 +371,3 @@ with c1:
 with c2:
     st.plotly_chart(gauge_chart(perc_novos_inad, "Novos Inadimplentes"), use_container_width=True)
     st.markdown(f"**Valor Novos Inadimplentes:** R$ {valor_novos_inad:,.2f}")
-
-# Salva snapshot atualizado para próxima execução
-df_inad.to_csv(snapshot, index=False)
