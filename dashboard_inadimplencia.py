@@ -321,7 +321,16 @@ with st.expander("Clique para ver o Resumo por Cliente"):
     else:
         st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
 
-# ==== GRAFICOS DE GAUGE USANDO HISTÓRICO DO GOOGLE DRIVE ====
+# CRIAR LOGO APÓS O MERGE, ANTES DOS FILTROS:
+hoje = datetime.now()
+df_merged["Dias de atraso"] = (hoje - df_merged["Vencimento líquido"]).dt.days
+df_merged["Faixa"] = df_merged.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
+df_merged["Prazo"] = df_merged["Dias de atraso"].apply(classifica_prazo)
+
+# INADIMPLENTES GLOBAIS (NÃO FILTRADOS)
+df_inad_global = df_merged[df_merged["Dias de atraso"] >= 1].copy()
+
+# ==== GRAFICOS DE GAUGE GLOBAL (SEM INDENTAÇÃO) ====
 def gauge_chart(percent, title):
     fig = go.Figure(go.Indicator(
         mode = "gauge+number",
@@ -342,28 +351,67 @@ def gauge_chart(percent, title):
     return fig
 
 id_cols = ["Tipo de documento", "Referência", "Conta", "Divisão", "Banco da empresa", "Vencimento líquido"]
-df_inad["ID"] = df_inad[id_cols].astype(str).agg("_".join, axis=1)
-df_hist = load_hist_data(URL_HIST)
+df_inad_global["ID"] = df_inad_global[id_cols].astype(str).agg("_".join, axis=1)
+snapshot = "snapshot_inad.csv"
+indicador_file = "indicadores_gauge.json"
+
 valor_quitado = 0
 valor_novos_inad = 0
 perc_recuperado = 0
 perc_novos_inad = 0
 
-if not df_hist.empty:
-    if "ID" not in df_hist.columns:
-        df_hist["ID"] = df_hist[id_cols].astype(str).agg("_".join, axis=1)
-    antigos = set(df_hist["ID"])
-    novos = set(df_inad["ID"])
+df_hash = hash_dataframe(df_inad_global)
+
+indicadores_prev = None
+if os.path.exists(indicador_file):
+    with open(indicador_file, "r", encoding="utf-8") as f:
+        try:
+            indicadores_prev = json.load(f)
+        except Exception:
+            indicadores_prev = None
+
+if os.path.exists(snapshot):
+    df_old = pd.read_csv(snapshot)
+    if "ID" not in df_old.columns:
+        df_old["ID"] = df_old[id_cols].astype(str).agg("_".join, axis=1)
+    antigos = set(df_old["ID"])
+    novos = set(df_inad_global["ID"])
     quitados = antigos - novos
     novos_inad = novos - antigos
-    valor_quitado = df_hist[df_hist["ID"].isin(quitados)]["Montante em moeda interna"].sum()
-    valor_novos_inad = df_inad[df_inad["ID"].isin(novos_inad)]["Montante em moeda interna"].sum()
-    total_antigo = df_hist["Montante em moeda interna"].sum()
-    total_novo = df_inad["Montante em moeda interna"].sum()
+    valor_quitado = df_old[df_old["ID"].isin(quitados)]["Montante em moeda interna"].sum()
+    valor_novos_inad = df_inad_global[df_inad_global["ID"].isin(novos_inad)]["Montante em moeda interna"].sum()
+    total_antigo = df_old["Montante em moeda interna"].sum()
+    total_novo = df_inad_global["Montante em moeda interna"].sum()
     perc_recuperado = (valor_quitado / total_antigo * 100) if total_antigo else 0
     perc_novos_inad = (valor_novos_inad / total_novo * 100) if total_novo else 0
+    snapshot_hash = None
+    try:
+        snapshot_hash = hash_dataframe(df_old)
+    except Exception:
+        pass
+    if snapshot_hash and snapshot_hash == df_hash and indicadores_prev:
+        valor_quitado = indicadores_prev.get("valor_quitado", 0)
+        valor_novos_inad = indicadores_prev.get("valor_novos_inad", 0)
+        perc_recuperado = indicadores_prev.get("perc_recuperado", 0)
+        perc_novos_inad = indicadores_prev.get("perc_novos_inad", 0)
+    else:
+        with open(indicador_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "valor_quitado": valor_quitado,
+                "valor_novos_inad": valor_novos_inad,
+                "perc_recuperado": perc_recuperado,
+                "perc_novos_inad": perc_novos_inad
+            }, f)
+else:
+    with open(indicador_file, "w", encoding="utf-8") as f:
+        json.dump({
+            "valor_quitado": valor_quitado,
+            "valor_novos_inad": valor_novos_inad,
+            "perc_recuperado": perc_recuperado,
+            "perc_novos_inad": perc_novos_inad
+        }, f)
 
-st.markdown("### Indicadores Dinâmicos de Inadimplência (Comparativo com a última versão dos dados)")
+st.markdown("### Indicadores Dinâmicos de Inadimplência (Comparativo com a última versão dos dados - base global)")
 c1, c2 = st.columns(2)
 with c1:
     st.plotly_chart(gauge_chart(perc_recuperado, "Recuperação de Inadimplentes"), use_container_width=True)
@@ -371,3 +419,6 @@ with c1:
 with c2:
     st.plotly_chart(gauge_chart(perc_novos_inad, "Novos Inadimplentes"), use_container_width=True)
     st.markdown(f"**Valor Novos Inadimplentes:** R$ {valor_novos_inad:,.2f}")
+
+# Salva snapshot atualizado para próxima execução (só global!)
+df_inad_global.to_csv(snapshot, index=False)
