@@ -7,11 +7,12 @@ from datetime import datetime
 from io import BytesIO
 import time
 import os
+import json
+import hashlib
 
 st.set_page_config(layout="wide", page_title="Dashboard Inadimplência")
 
 # --- CONFIGURAÇÃO DAS FONTES DE DADOS ---
-
 OWNER = "rodneirac"
 REPO = "BIINADIMSPX"
 ARQUIVO_REGIAO = "REGIAO.xlsx"
@@ -20,7 +21,6 @@ LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
 ID_PLANILHA_GOOGLE = "1ndXRYn2e15Jom44-jrYW-bfTl7m-JT--"
 URL_DADOS = f"https://docs.google.com/spreadsheets/d/{ID_PLANILHA_GOOGLE}/export?format=xlsx"
-
 # --- FIM DA CONFIGURAÇÃO ---
 
 def label_mk(valor):
@@ -91,9 +91,18 @@ def classifica_prazo(dias):
 df_original = load_data(URL_DADOS)
 df_regiao = load_region_data(URL_REGIAO)
 
+def hash_dataframe(df):
+    """Gera um hash único do DataFrame de inadimplentes para detectar mudanças."""
+    # Ordena as linhas para o hash não variar caso só mude a ordem
+    relevant_cols = ["Tipo de documento", "Referência", "Conta", "Divisão", "Banco da empresa", "Vencimento líquido", "Montante em moeda interna"]
+    if not all(col in df.columns for col in relevant_cols):
+        return None
+    df_sorted = df[relevant_cols].sort_values(by=relevant_cols).reset_index(drop=True)
+    data_bytes = pd.util.hash_pandas_object(df_sorted).values.tobytes()
+    return hashlib.md5(data_bytes).hexdigest()
+
 if not df_original.empty and not df_regiao.empty:
     soma_bruta_planilha = df_original["Montante em moeda interna"].sum()
-
     col_div_princ = get_division_column_name(df_original)
     col_div_regiao = get_division_column_name(df_regiao)
 
@@ -103,10 +112,8 @@ if not df_original.empty and not df_regiao.empty:
 
     df_original[col_div_princ] = df_original[col_div_princ].astype(str)
     df_regiao[col_div_regiao] = df_regiao[col_div_regiao].astype(str)
-
     df_regiao = df_regiao.drop_duplicates(subset=[col_div_regiao])
     df_merged = pd.merge(df_original, df_regiao, on=col_div_princ, how="left")
-
     soma_apos_merge = df_merged["Montante em moeda interna"].sum()
     if abs(soma_bruta_planilha - soma_apos_merge) > 1:
         st.warning(f"Soma após merge: R$ {soma_apos_merge:,.2f} difere do bruto: R$ {soma_bruta_planilha:,.2f}")
@@ -125,7 +132,6 @@ if not df_original.empty and not df_regiao.empty:
         st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
         st.rerun()
     st.sidebar.caption("Clique para buscar os dados mais recentes das fontes de dados (Google Drive e GitHub).")
-
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
 
@@ -147,7 +153,6 @@ if not df_original.empty and not df_regiao.empty:
 
     tot_inad = df_inad["Montante em moeda interna"].sum()
     tot_venc = df_venc["Montante em moeda interna"].sum()
-
     if "FrmPgto" in df_filt.columns:
         soma_frmpgto_HR = df_filt[df_filt["FrmPgto"].isin(["H", "R"])]["Montante em moeda interna"].sum()
     else:
@@ -179,7 +184,6 @@ if not df_original.empty and not df_regiao.empty:
             resumo_filial_fmt['Venda Antecipada Inadimplente'] = resumo_filial_fmt['Venda Antecipada Inadimplente'].apply(fmt)
             st.markdown("**Por Filial:**")
             st.dataframe(resumo_filial_fmt, use_container_width=True)
-
             if 'Nome 1' in df_antecipada.columns:
                 resumo_cli = (
                     df_antecipada.groupby('Nome 1')["Montante em moeda interna"]
@@ -201,7 +205,6 @@ if not df_original.empty and not df_regiao.empty:
     pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"],
                            values="Montante em moeda interna", columns="Prazo",
                            aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
-
     st.dataframe(
         pivot.style.format({col: fmt for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
         use_container_width=True
@@ -226,7 +229,6 @@ if not df_original.empty and not df_regiao.empty:
         categorias_2025 = sorted(df_2025['Categoria'].unique())
         for i, cat in enumerate(categorias_2025):
             color_map[cat] = cores_2025[i % len(cores_2025)]
-
         fig_bar = px.bar(df_graf, x='Categoria', y='Valor',
                          text=df_graf['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
                          color='Categoria', color_discrete_map=color_map)
@@ -301,10 +303,8 @@ with st.expander("Clique para ver o Resumo por Cliente"):
         resumo_cli_fmt['Valor Inadimplente'] = resumo_cli_fmt['Valor Inadimplente'].apply(fmt)
         resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
         st.dataframe(resumo_cli_fmt, use_container_width=True)
-
         top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
         top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
-
         fig_cli = px.bar(
             top_n,
             x='Valor Inadimplente',
@@ -326,7 +326,6 @@ with st.expander("Clique para ver o Resumo por Cliente"):
         st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
 
 # ==== GRAFICOS DE GAUGE (fora do expander, SEM INDENTAÇÃO) ====
-import plotly.graph_objects as go
 
 def gauge_chart(percent, title):
     fig = go.Figure(go.Indicator(
@@ -350,11 +349,24 @@ def gauge_chart(percent, title):
 id_cols = ["Tipo de documento", "Referência", "Conta", "Divisão", "Banco da empresa", "Vencimento líquido"]
 df_inad["ID"] = df_inad[id_cols].astype(str).agg("_".join, axis=1)
 snapshot = "snapshot_inad.csv"
+indicador_file = "indicadores_gauge.json"
+
 valor_quitado = 0
 valor_novos_inad = 0
 perc_recuperado = 0
 perc_novos_inad = 0
 
+df_hash = hash_dataframe(df_inad)
+
+indicadores_prev = None
+if os.path.exists(indicador_file):
+    with open(indicador_file, "r", encoding="utf-8") as f:
+        try:
+            indicadores_prev = json.load(f)
+        except Exception:
+            indicadores_prev = None
+
+# Lógica do snapshot
 if os.path.exists(snapshot):
     df_old = pd.read_csv(snapshot)
     if "ID" not in df_old.columns:
@@ -369,6 +381,36 @@ if os.path.exists(snapshot):
     total_novo = df_inad["Montante em moeda interna"].sum()
     perc_recuperado = (valor_quitado / total_antigo * 100) if total_antigo else 0
     perc_novos_inad = (valor_novos_inad / total_novo * 100) if total_novo else 0
+    # DETECTA se mudou comparando o hash:
+    snapshot_hash = None
+    try:
+        snapshot_hash = hash_dataframe(df_old)
+    except Exception:
+        pass
+    if snapshot_hash and snapshot_hash == df_hash and indicadores_prev:
+        # DADOS IGUAIS, USA INDICADOR ANTERIOR
+        valor_quitado = indicadores_prev.get("valor_quitado", 0)
+        valor_novos_inad = indicadores_prev.get("valor_novos_inad", 0)
+        perc_recuperado = indicadores_prev.get("perc_recuperado", 0)
+        perc_novos_inad = indicadores_prev.get("perc_novos_inad", 0)
+    else:
+        # SALVA NOVO INDICADOR
+        with open(indicador_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "valor_quitado": valor_quitado,
+                "valor_novos_inad": valor_novos_inad,
+                "perc_recuperado": perc_recuperado,
+                "perc_novos_inad": perc_novos_inad
+            }, f)
+else:
+    # Primeira execução: salva o indicador inicial
+    with open(indicador_file, "w", encoding="utf-8") as f:
+        json.dump({
+            "valor_quitado": valor_quitado,
+            "valor_novos_inad": valor_novos_inad,
+            "perc_recuperado": perc_recuperado,
+            "perc_novos_inad": perc_novos_inad
+        }, f)
 
 st.markdown("### Indicadores Dinâmicos de Inadimplência (Comparativo com a última versão dos dados)")
 c1, c2 = st.columns(2)
@@ -381,4 +423,3 @@ with c2:
 
 # Salva snapshot atualizado para próxima execução
 df_inad.to_csv(snapshot, index=False)
-   
