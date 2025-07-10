@@ -34,6 +34,7 @@ def label_mk(valor):
 if 'last_reload' not in st.session_state:
     st.session_state['last_reload'] = None
 
+@st.cache_data(ttl=3600)
 def load_data(url):
     try:
         response = requests.get(url)
@@ -45,11 +46,13 @@ def load_data(url):
     except:
         return pd.DataFrame()
 
+@st.cache_data(ttl=3600)
 def load_region_data(url):
     response = requests.get(url)
     df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
     return df
 
+@st.cache_data(ttl=3600)
 def load_hist_data(url):
     try:
         response = requests.get(url)
