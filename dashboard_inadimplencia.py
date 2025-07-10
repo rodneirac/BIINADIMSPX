@@ -16,7 +16,7 @@ ARQUIVO_REGIAO = "REGIAO.xlsx"
 URL_REGIAO = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{ARQUIVO_REGIAO}"
 LOGO_URL = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/logo.png"
 
-ID_PLANILHA_GOOGLE = "1ndXRYn2e15Jom44-jrYW-bfTl7m-JT--"
+ID_PLANILHA_GOOGLE = "1APYc9xkFeFkYuRRuhfi2DhJWw2RA9ddx"
 URL_DADOS = f"https://docs.google.com/spreadsheets/d/{ID_PLANILHA_GOOGLE}/export?format=xlsx"
 
 ID_PLANILHA_HIST = "1xxLuMIudxIIvqe_9so3I3LYiEubvaRIM"
