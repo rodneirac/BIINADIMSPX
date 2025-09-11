@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta ### NOVO ### Adicionado timedelta
 from io import BytesIO
 import time
 
@@ -33,6 +33,10 @@ def label_mk(valor):
 
 if 'last_reload' not in st.session_state:
     st.session_state['last_reload'] = None
+
+### NOVO: Inicializa o estado do filtro de data ###
+if 'show_last_10_days' not in st.session_state:
+    st.session_state['show_last_10_days'] = False
 
 @st.cache_data(ttl=3600)
 def load_data(url):
@@ -126,7 +130,20 @@ if not df_original.empty and not df_regiao.empty:
     if st.sidebar.button("🔄 Recarregar dados"):
         st.cache_data.clear()
         st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
+        ### NOVO: Garante que o filtro de data seja desativado ao recarregar ###
+        st.session_state['show_last_10_days'] = False
         st.rerun()
+
+    ### NOVO: Botões para filtro de data ###
+    if st.sidebar.button("🗓️ Inadimplentes dos últimos 10 dias"):
+        st.session_state['show_last_10_days'] = True
+        st.rerun()
+
+    if st.sidebar.button("🧹 Limpar Filtro de Data"):
+        st.session_state['show_last_10_days'] = False
+        st.rerun()
+    ### FIM DA SEÇÃO NOVA ###
+
     st.sidebar.caption("Clique para buscar os dados mais recentes das fontes de dados (Google Drive e GitHub).")
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
@@ -141,6 +158,15 @@ if not df_original.empty and not df_regiao.empty:
 
     hoje = datetime.now()
     df_filt["Dias de atraso"] = (hoje - df_filt["Vencimento líquido"]).dt.days
+
+    ### NOVO: Lógica para aplicar o filtro de data ###
+    if st.session_state.get('show_last_10_days', False):
+        st.success("Filtro aplicado: Exibindo apenas inadimplência com vencimento nos últimos 10 dias.")
+        # Filtra para dias de atraso entre 1 (venceu ontem) e 10.
+        df_filt = df_filt[df_filt["Dias de atraso"].between(1, 10)]
+    ### FIM DA SEÇÃO NOVA ###
+
+
     df_filt["Faixa"] = df_filt.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
     df_filt["Prazo"] = df_filt["Dias de atraso"].apply(classifica_prazo)
 
@@ -161,8 +187,14 @@ if not df_original.empty and not df_regiao.empty:
     st.markdown("### Indicadores Gerais")
     c1, c2, c3 = st.columns(3)
     c1.metric("Vlr Total Inadimplente", f"R$ {soma_bruta_planilha:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    c2.metric("Vlr Inadimplente", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    # Alterado para refletir o total inadimplente filtrado
+    c2.metric("Vlr Inadimplente (Filtro Atual)", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     c3.metric("Venda Antecipada Inadimplente", f"R$ {soma_frmpgto_HR:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+    # ... (O restante do seu código permanece exatamente o mesmo) ...
+    # Nenhuma alteração é necessária abaixo desta linha, pois todos os gráficos
+    # e tabelas já são baseados no dataframe `df_inad`, que agora estará
+    # corretamente filtrado pelos últimos 10 dias quando o botão for ativado.
 
     def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -198,13 +230,17 @@ if not df_original.empty and not df_regiao.empty:
             st.info("Coluna FrmPgto não encontrada.")
 
     st.markdown("### Quadro Detalhado de Inadimplência")
-    pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"],
-                           values="Montante em moeda interna", columns="Prazo",
-                           aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
-    st.dataframe(
-        pivot.style.format({col: fmt for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
-        use_container_width=True
-    )
+    if not df_inad.empty:
+        pivot = pd.pivot_table(df_inad, index=["Exercicio", "Faixa"],
+                                values="Montante em moeda interna", columns="Prazo",
+                                aggfunc="sum", fill_value=0, margins=True, margins_name="Total Geral").reset_index()
+        st.dataframe(
+            pivot.style.format({col: fmt for col in pivot.columns if col not in ["Exercicio", "Faixa"]}),
+            use_container_width=True
+        )
+    else:
+        st.warning("Nenhum dado de inadimplência encontrado para os filtros selecionados.")
+
 
     st.markdown("### Inadimplência por Exercício")
     df_outros = df_inad[df_inad['Exercicio'] != '2025']
@@ -226,8 +262,8 @@ if not df_original.empty and not df_regiao.empty:
         for i, cat in enumerate(categorias_2025):
             color_map[cat] = cores_2025[i % len(cores_2025)]
         fig_bar = px.bar(df_graf, x='Categoria', y='Valor',
-                         text=df_graf['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
-                         color='Categoria', color_discrete_map=color_map)
+                            text=df_graf['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
+                            color='Categoria', color_discrete_map=color_map)
         fig_bar.update_layout(title='Detalhe por Exercício e Faixa (2025)', showlegend=False, height=400)
         fig_bar.update_traces(textposition='outside')
         st.plotly_chart(fig_bar, use_container_width=True)
@@ -236,12 +272,12 @@ if not df_original.empty and not df_regiao.empty:
 
     regra_tipo_cobranca = {
         'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
-        'CARTEIRA':            ['999'],
-        'PERMUTA':             ['096', '96'],
-        'COBRANÇA JURIDICA':   ['060', '60', '005', '5', '888'],
+        'CARTEIRA':           ['999'],
+        'PERMUTA':            ['096', '96'],
+        'COBRANÇA JURIDICA':  ['060', '60', '005', '5', '888'],
         'COBRANÇA PROTESTADO': ['087', '87'],
-        'ANÁLISE PROCESSO':    ['007', '7', '020', '20', '022', '22'],
-        'DIVERSOS':            ['899', '991', '026', '26', '990', '006', '6', '']
+        'ANÁLISE PROCESSO':   ['007', '7', '020', '20', '022', '22'],
+        'DIVERSOS':           ['899', '991', '026', '26', '990', '006', '6', '']
     }
     df_filt['Banco da empresa'] = df_filt['Banco da empresa'].fillna('').astype(str).str.strip()
     resultado = []
@@ -276,11 +312,14 @@ if not df_original.empty and not df_regiao.empty:
 
     st.markdown("### Inadimplência por Região (3D Simulado)")
     df_pie = df_inad.groupby('Região')['Montante em moeda interna'].sum().reset_index()
-    fig_pie = px.pie(df_pie, names='Região', values='Montante em moeda interna',
-                     title='Participação por Região', hole=0.2)
-    fig_pie.update_traces(textposition='inside', textinfo='percent+label', pull=[0.05]*len(df_pie))
-    fig_pie.update_layout(title_font_size=16, height=600, width=800)
-    st.plotly_chart(fig_pie, use_container_width=True)
+    if not df_pie.empty:
+      fig_pie = px.pie(df_pie, names='Região', values='Montante em moeda interna',
+                        title='Participação por Região', hole=0.2)
+      fig_pie.update_traces(textposition='inside', textinfo='percent+label', pull=[0.05]*len(df_pie))
+      fig_pie.update_layout(title_font_size=16, height=600, width=800)
+      st.plotly_chart(fig_pie, use_container_width=True)
+    else:
+      st.info("Sem dados para o gráfico de participação por Região.")
 
     with st.expander("Clique para ver o Resumo por Divisão"):
         resumo = df_inad.groupby(col_div_princ)['Montante em moeda interna'].sum().reset_index()
@@ -289,85 +328,92 @@ if not df_original.empty and not df_regiao.empty:
         resumo['Valor Inadimplente'] = resumo['Valor Inadimplente'].apply(fmt)
         st.dataframe(resumo, use_container_width=True)
 
-with st.expander("Clique para ver o Resumo por Cliente"):
-    if 'Nome 1' in df_inad.columns:
-        resumo_cli = df_inad.groupby('Nome 1')['Montante em moeda interna'].sum().reset_index()
-        resumo_cli.rename(columns={'Nome 1': 'Cliente', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
-        resumo_cli['% do Total'] = resumo_cli['Valor Inadimplente'] / tot_inad * 100
-        resumo_cli = resumo_cli.sort_values(by='Valor Inadimplente', ascending=False)
-        resumo_cli_fmt = resumo_cli.copy()
-        resumo_cli_fmt['Valor Inadimplente'] = resumo_cli_fmt['Valor Inadimplente'].apply(fmt)
-        resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
-        st.dataframe(resumo_cli_fmt, use_container_width=True)
-        top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
-        top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
-        fig_cli = px.bar(
-            top_n,
-            x='Valor Inadimplente',
-            y='Cliente',
-            orientation='h',
-            text='label_mk',
-            color_discrete_sequence=["#0074D9"]
-        )
-        fig_cli.update_layout(
-            height=500,
-            yaxis_title='',
-            xaxis_title='Valor Inadimplente',
-            showlegend=False,
-            title='Top 10 Clientes Inadimplentes'
-        )
-        fig_cli.update_traces(textposition='outside')
-        st.plotly_chart(fig_cli, use_container_width=True)
-    else:
-        st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
+    with st.expander("Clique para ver o Resumo por Cliente"):
+        if 'Nome 1' in df_inad.columns and not df_inad.empty:
+            resumo_cli = df_inad.groupby('Nome 1')['Montante em moeda interna'].sum().reset_index()
+            resumo_cli.rename(columns={'Nome 1': 'Cliente', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
+            if tot_inad > 0:
+                resumo_cli['% do Total'] = resumo_cli['Valor Inadimplente'] / tot_inad * 100
+            else:
+                resumo_cli['% do Total'] = 0
+            resumo_cli = resumo_cli.sort_values(by='Valor Inadimplente', ascending=False)
+            resumo_cli_fmt = resumo_cli.copy()
+            resumo_cli_fmt['Valor Inadimplente'] = resumo_cli_fmt['Valor Inadimplente'].apply(fmt)
+            resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
+            st.dataframe(resumo_cli_fmt, use_container_width=True)
+            top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
+            top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
+            fig_cli = px.bar(
+                top_n,
+                x='Valor Inadimplente',
+                y='Cliente',
+                orientation='h',
+                text='label_mk',
+                color_discrete_sequence=["#0074D9"]
+            )
+            fig_cli.update_layout(
+                height=500,
+                yaxis_title='',
+                xaxis_title='Valor Inadimplente',
+                showlegend=False,
+                title='Top 10 Clientes Inadimplentes'
+            )
+            fig_cli.update_traces(textposition='outside')
+            st.plotly_chart(fig_cli, use_container_width=True)
+        elif 'Nome 1' not in df_inad.columns:
+            st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
+        else:
+            st.info("Nenhum cliente inadimplente para exibir.")
 
-# ==== GRAFICOS DE GAUGE USANDO HISTÓRICO DO GOOGLE DRIVE ====
-def gauge_chart(percent, title):
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = percent,
-        number = {'suffix': "%"},
-        title = {'text': title},
-        gauge = {
-            'axis': {'range': [0, 100]},
-            'bar': {'color': "#24292F"},
-            'steps' : [
-                {'range': [0, 50], 'color': "#B03A2E"},
-                {'range': [50, 80], 'color': "#F7DC6F"},
-                {'range': [80, 100], 'color': "#1ABC9C"},
-            ],
-        }
-    ))
-    fig.update_layout(margin=dict(l=20, r=20, t=60, b=20), height=300)
-    return fig
 
-id_cols = ["Tipo de documento", "Referência", "Conta", "Divisão", "Banco da empresa", "Vencimento líquido"]
-df_inad["ID"] = df_inad[id_cols].astype(str).agg("_".join, axis=1)
-df_hist = load_hist_data(URL_HIST)
-valor_quitado = 0
-valor_novos_inad = 0
-perc_recuperado = 0
-perc_novos_inad = 0
+    # ==== GRAFICOS DE GAUGE USANDO HISTÓRICO DO GOOGLE DRIVE ====
+    def gauge_chart(percent, title):
+        fig = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = percent,
+            number = {'suffix': "%"},
+            title = {'text': title},
+            gauge = {
+                'axis': {'range': [0, 100]},
+                'bar': {'color': "#24292F"},
+                'steps' : [
+                    {'range': [0, 50], 'color': "#B03A2E"},
+                    {'range': [50, 80], 'color': "#F7DC6F"},
+                    {'range': [80, 100], 'color': "#1ABC9C"},
+                ],
+            }
+        ))
+        fig.update_layout(margin=dict(l=20, r=20, t=60, b=20), height=300)
+        return fig
 
-if not df_hist.empty:
-    if "ID" not in df_hist.columns:
-        df_hist["ID"] = df_hist[id_cols].astype(str).agg("_".join, axis=1)
-    antigos = set(df_hist["ID"])
-    novos = set(df_inad["ID"])
-    quitados = antigos - novos
-    novos_inad = novos - antigos
-    valor_quitado = df_hist[df_hist["ID"].isin(quitados)]["Montante em moeda interna"].sum()
-    valor_novos_inad = df_inad[df_inad["ID"].isin(novos_inad)]["Montante em moeda interna"].sum()
-    total_antigo = df_hist["Montante em moeda interna"].sum()
-    total_novo = df_inad["Montante em moeda interna"].sum()
-    perc_recuperado = (valor_quitado / total_antigo * 100) if total_antigo else 0
-    perc_novos_inad = (valor_novos_inad / total_novo * 100) if total_novo else 0
+    if not df_inad.empty:
+      id_cols = ["Tipo de documento", "Referência", "Conta", "Divisão", "Banco da empresa", "Vencimento líquido"]
+      df_inad["ID"] = df_inad[id_cols].astype(str).agg("_".join, axis=1)
+      df_hist = load_hist_data(URL_HIST)
+      valor_quitado = 0
+      valor_novos_inad = 0
+      perc_recuperado = 0
+      perc_novos_inad = 0
 
-st.markdown("### Indicadores Dinâmicos de Inadimplência (Comparativo com a última versão dos dados)")
-c1, c2 = st.columns(2)
-with c1:
-    st.plotly_chart(gauge_chart(perc_recuperado, "Recuperação de Inadimplentes"), use_container_width=True)
-    st.markdown(f"**Valor Recuperado:** R$ {valor_quitado:,.2f}")
-with c2:
-    st.plotly_chart(gauge_chart(perc_novos_inad, "Novos Inadimplentes"), use_container_width=True)
-    st.markdown(f"**Valor Novos Inadimplentes:** R$ {valor_novos_inad:,.2f}")
+      if not df_hist.empty:
+          if "ID" not in df_hist.columns:
+              df_hist["ID"] = df_hist[id_cols].astype(str).agg("_".join, axis=1)
+          antigos = set(df_hist["ID"])
+          novos = set(df_inad["ID"])
+          quitados = antigos - novos
+          novos_inad = novos - antigos
+          valor_quitado = df_hist[df_hist["ID"].isin(quitados)]["Montante em moeda interna"].sum()
+          valor_novos_inad = df_inad[df_inad["ID"].isin(novos_inad)]["Montante em moeda interna"].sum()
+          total_antigo = df_hist["Montante em moeda interna"].sum()
+          total_novo = df_inad["Montante em moeda interna"].sum()
+          perc_recuperado = (valor_quitado / total_antigo * 100) if total_antigo else 0
+          perc_novos_inad = (valor_novos_inad / total_novo * 100) if total_novo else 0
+
+      st.markdown("### Indicadores Dinâmicos de Inadimplência (Comparativo com a última versão dos dados)")
+      c1, c2 = st.columns(2)
+      with c1:
+          st.plotly_chart(gauge_chart(perc_recuperado, "Recuperação de Inadimplentes"), use_container_width=True)
+          st.markdown(f"**Valor Recuperado:** R$ {valor_quitado:,.2f}")
+      with c2:
+          st.plotly_chart(gauge_chart(perc_novos_inad, "Novos Inadimplentes"), use_container_width=True)
+          st.markdown(f"**Valor Novos Inadimplentes:** R$ {valor_novos_inad:,.2f}")
