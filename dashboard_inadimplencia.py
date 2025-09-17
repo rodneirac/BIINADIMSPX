@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta ### NOVO ### Adicionado timedelta
+from datetime import datetime, timedelta
 from io import BytesIO
 import time
 
@@ -34,7 +34,6 @@ def label_mk(valor):
 if 'last_reload' not in st.session_state:
     st.session_state['last_reload'] = None
 
-### NOVO: Inicializa o estado do filtro de data ###
 if 'show_last_10_days' not in st.session_state:
     st.session_state['show_last_10_days'] = False
 
@@ -130,11 +129,9 @@ if not df_original.empty and not df_regiao.empty:
     if st.sidebar.button("🔄 Recarregar dados"):
         st.cache_data.clear()
         st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
-        ### NOVO: Garante que o filtro de data seja desativado ao recarregar ###
         st.session_state['show_last_10_days'] = False
         st.rerun()
 
-    ### NOVO: Botões para filtro de data ###
     if st.sidebar.button("🗓️ Inadimplentes dos últimos 10 dias"):
         st.session_state['show_last_10_days'] = True
         st.rerun()
@@ -142,7 +139,6 @@ if not df_original.empty and not df_regiao.empty:
     if st.sidebar.button("🧹 Limpar Filtro de Data"):
         st.session_state['show_last_10_days'] = False
         st.rerun()
-    ### FIM DA SEÇÃO NOVA ###
 
     st.sidebar.caption("Clique para buscar os dados mais recentes das fontes de dados (Google Drive e GitHub).")
     if st.session_state['last_reload']:
@@ -159,12 +155,9 @@ if not df_original.empty and not df_regiao.empty:
     hoje = datetime.now()
     df_filt["Dias de atraso"] = (hoje - df_filt["Vencimento líquido"]).dt.days
 
-    ### NOVO: Lógica para aplicar o filtro de data ###
     if st.session_state.get('show_last_10_days', False):
         st.success("Filtro aplicado: Exibindo apenas inadimplência com vencimento nos últimos 10 dias.")
-        # Filtra para dias de atraso entre 1 (venceu ontem) e 10.
         df_filt = df_filt[df_filt["Dias de atraso"].between(1, 10)]
-    ### FIM DA SEÇÃO NOVA ###
 
 
     df_filt["Faixa"] = df_filt.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
@@ -187,14 +180,8 @@ if not df_original.empty and not df_regiao.empty:
     st.markdown("### Indicadores Gerais")
     c1, c2, c3 = st.columns(3)
     c1.metric("Vlr Total Inadimplente", f"R$ {soma_bruta_planilha:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    # Alterado para refletir o total inadimplente filtrado
     c2.metric("Vlr Inadimplente (Filtro Atual)", f"R$ {tot_inad:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     c3.metric("Venda Antecipada Inadimplente", f"R$ {soma_frmpgto_HR:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-
-    # ... (O restante do seu código permanece exatamente o mesmo) ...
-    # Nenhuma alteração é necessária abaixo desta linha, pois todos os gráficos
-    # e tabelas já são baseados no dataframe `df_inad`, que agora estará
-    # corretamente filtrado pelos últimos 10 dias quando o botão for ativado.
 
     def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -271,10 +258,10 @@ if not df_original.empty and not df_regiao.empty:
         st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
     regra_tipo_cobranca = {
+        'COBRANÇA JURÍDICA':  ['060', '60', '005', '5', '888'],
         'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
         'CARTEIRA':           ['999'],
         'PERMUTA':            ['096', '96'],
-        'COBRANÇA JURIDICA':  ['060', '60', '005', '5', '888'],
         'COBRANÇA PROTESTADO': ['087', '87'],
         'ANÁLISE PROCESSO':   ['007', '7', '020', '20', '022', '22'],
         'DIVERSOS':           ['899', '991', '026', '26', '990', '006', '6', '']
@@ -328,7 +315,10 @@ if not df_original.empty and not df_regiao.empty:
         resumo['Valor Inadimplente'] = resumo['Valor Inadimplente'].apply(fmt)
         st.dataframe(resumo, use_container_width=True)
 
-        with st.expander("Clique para ver o Resumo por Cliente"):
+    # ######################################################################
+    # ## INÍCIO DA SEÇÃO MODIFICADA: RESUMO POR CLIENTE                   ##
+    # ######################################################################
+    with st.expander("Clique para ver o Resumo por Cliente"):
         if 'Nome 1' in df_inad.columns and not df_inad.empty:
             
             mapa_banco_para_tipo = {banco: tipo for tipo, bancos in regra_tipo_cobranca.items() for banco in bancos}
@@ -402,6 +392,9 @@ if not df_original.empty and not df_regiao.empty:
             st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
         else:
             st.info("Nenhum cliente inadimplente para exibir.")
+    # ######################################################################
+    # ## FIM DA SEÇÃO MODIFICADA                                          ##
+    # ######################################################################
 
 
     # ==== GRAFICOS DE GAUGE USANDO HISTÓRICO DO GOOGLE DRIVE ====
