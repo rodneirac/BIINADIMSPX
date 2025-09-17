@@ -328,24 +328,61 @@ if not df_original.empty and not df_regiao.empty:
         resumo['Valor Inadimplente'] = resumo['Valor Inadimplente'].apply(fmt)
         st.dataframe(resumo, use_container_width=True)
 
-    with st.expander("Clique para ver o Resumo por Cliente"):
+        with st.expander("Clique para ver o Resumo por Cliente"):
         if 'Nome 1' in df_inad.columns and not df_inad.empty:
-            resumo_cli = df_inad.groupby('Nome 1')['Montante em moeda interna'].sum().reset_index()
-            resumo_cli.rename(columns={'Nome 1': 'Cliente', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
+            
+            mapa_banco_para_tipo = {banco: tipo for tipo, bancos in regra_tipo_cobranca.items() for banco in bancos}
+            df_inad_copy = df_inad.copy()
+            df_inad_copy['Tipo de Cobrança Desc'] = df_inad_copy['Banco da empresa'].astype(str).map(mapa_banco_para_tipo)
+            df_inad_copy['Tipo de Cobrança Desc'].fillna('DIVERSOS', inplace=True)
+
+            resumo_cli = df_inad_copy.groupby('Nome 1').agg(
+                Valor_Inadimplente=('Montante em moeda interna', 'sum'),
+                Tipos_de_Cobranca=('Tipo de Cobrança Desc', lambda x: ', '.join(x.unique()))
+            ).reset_index()
+
+            resumo_cli.rename(columns={'Nome 1': 'Cliente'}, inplace=True)
+            
+            ordem_gravidade = [
+                'COBRANÇA JURÍDICA', 'COBRANÇA PROTESTADO', 'ANÁLISE PROCESSO',
+                'COBRANÇA BANCÁRIA', 'CARTEIRA', 'PERMUTA', 'DIVERSOS'
+            ]
+            mapa_gravidade_simbolo = {
+                'COBRANÇA JURÍDICA': '🔴', 'COBRANÇA PROTESTADO': '🔴',
+                'ANÁLISE PROCESSO': '🟡', 'COBRANÇA BANCÁRIA': '🔵',
+                'CARTEIRA': '🔵', 'PERMUTA': '⚪', 'DIVERSOS': '⚪'
+            }
+
+            def definir_gravidade(tipos_string):
+                for tipo in ordem_gravidade:
+                    if tipo in tipos_string:
+                        return mapa_gravidade_simbolo[tipo]
+                return '⚪'
+
             if tot_inad > 0:
-                resumo_cli['% do Total'] = resumo_cli['Valor Inadimplente'] / tot_inad * 100
+                resumo_cli['% do Total'] = resumo_cli['Valor_Inadimplente'] / tot_inad * 100
             else:
                 resumo_cli['% do Total'] = 0
-            resumo_cli = resumo_cli.sort_values(by='Valor Inadimplente', ascending=False)
+                
+            resumo_cli = resumo_cli.sort_values(by='Valor_Inadimplente', ascending=False)
+            
             resumo_cli_fmt = resumo_cli.copy()
-            resumo_cli_fmt['Valor Inadimplente'] = resumo_cli_fmt['Valor Inadimplente'].apply(fmt)
-            resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.1f}%")
-            st.dataframe(resumo_cli_fmt, use_container_width=True)
-            top_n = resumo_cli.head(10).sort_values('Valor Inadimplente')
-            top_n['label_mk'] = top_n['Valor Inadimplente'].apply(label_mk)
+            resumo_cli_fmt['Status'] = resumo_cli_fmt['Tipos_de_Cobranca'].apply(definir_gravidade)
+            resumo_cli_fmt['Valor Inadimplente'] = resumo_cli_fmt['Valor_Inadimplente'].apply(fmt)
+            resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.2f}%")
+            resumo_cli_fmt.rename(columns={'Tipos_de_Cobranca': 'Tipos de Cobrança'}, inplace=True)
+            
+            st.dataframe(
+                resumo_cli_fmt[['Status', 'Cliente', 'Valor Inadimplente', 'Tipos de Cobrança', '% do Total']], 
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            top_n = resumo_cli.head(10).sort_values('Valor_Inadimplente')
+            top_n['label_mk'] = top_n['Valor_Inadimplente'].apply(label_mk)
             fig_cli = px.bar(
                 top_n,
-                x='Valor Inadimplente',
+                x='Valor_Inadimplente',
                 y='Cliente',
                 orientation='h',
                 text='label_mk',
@@ -360,6 +397,7 @@ if not df_original.empty and not df_regiao.empty:
             )
             fig_cli.update_traces(textposition='outside')
             st.plotly_chart(fig_cli, use_container_width=True)
+            
         elif 'Nome 1' not in df_inad.columns:
             st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
         else:
