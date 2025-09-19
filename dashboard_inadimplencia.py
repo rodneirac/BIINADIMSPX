@@ -118,11 +118,24 @@ if not df_original.empty and not df_regiao.empty:
         st.warning(f"Soma após merge: R$ {soma_apos_merge:,.2f} difere do bruto: R$ {soma_bruta_planilha:,.2f}")
 
     df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
+    
+    lista_exercicios = sorted(df_merged['Exercicio'].unique())
 
     st.sidebar.title("Filtros")
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
-    exercicio_sel = st.sidebar.selectbox("Selecione o Exercício:", ["TODOS OS EXERCÍCIOS"] + sorted(df_merged['Exercicio'].unique()))
+    
+    # ######################################################################
+    # ## INÍCIO DA ALTERAÇÃO 1: FILTRO DE EXERCÍCIO                       ##
+    # ######################################################################
+    exercicio_sel = st.sidebar.multiselect(
+        "Selecione o(s) Exercício(s):",
+        options=lista_exercicios,
+        default=lista_exercicios
+    )
+    # ######################################################################
+    # ## FIM DA ALTERAÇÃO 1                                               ##
+    # ######################################################################
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### Atualização de Dados")
@@ -149,8 +162,17 @@ if not df_original.empty and not df_regiao.empty:
         df_filt = df_filt[df_filt['Região'] == regiao_sel]
     if divisao_sel != "TODAS AS DIVISÕES":
         df_filt = df_filt[df_filt[col_div_princ] == divisao_sel]
-    if exercicio_sel != "TODOS OS EXERCÍCIOS":
-        df_filt = df_filt[df_filt['Exercicio'] == exercicio_sel]
+    
+    # ######################################################################
+    # ## INÍCIO DA ALTERAÇÃO 2: LÓGICA DE FILTRAGEM                       ##
+    # ######################################################################
+    # Se o usuário selecionou algum exercício, filtra por eles.
+    # Se a lista estiver vazia, nenhum filtro de exercício é aplicado (mostra tudo).
+    if exercicio_sel:
+        df_filt = df_filt[df_filt['Exercicio'].isin(exercicio_sel)]
+    # ######################################################################
+    # ## FIM DA ALTERAÇÃO 2                                               ##
+    # ######################################################################
 
     hoje = datetime.now()
     df_filt["Dias de atraso"] = (hoje - df_filt["Vencimento líquido"]).dt.days
@@ -158,7 +180,6 @@ if not df_original.empty and not df_regiao.empty:
     if st.session_state.get('show_last_10_days', False):
         st.success("Filtro aplicado: Exibindo apenas inadimplência com vencimento nos últimos 10 dias.")
         df_filt = df_filt[df_filt["Dias de atraso"].between(1, 10)]
-
 
     df_filt["Faixa"] = df_filt.apply(lambda row: classifica_faixa(row["Exercicio"], row["Dias de atraso"]), axis=1)
     df_filt["Prazo"] = df_filt["Dias de atraso"].apply(classifica_prazo)
@@ -175,7 +196,7 @@ if not df_original.empty and not df_regiao.empty:
 
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
-    st.markdown(f"**Exibindo dados para:** Região: {regiao_sel} | Divisão: {divisao_sel} | Exercício: {exercicio_sel}")
+    st.markdown(f"**Exibindo dados para:** Região: {regiao_sel} | Divisão: {divisao_sel} | Exercício(s): {', '.join(exercicio_sel) if exercicio_sel else 'Todos'}")
 
     st.markdown("### Indicadores Gerais")
     c1, c2, c3 = st.columns(3)
@@ -315,9 +336,6 @@ if not df_original.empty and not df_regiao.empty:
         resumo['Valor Inadimplente'] = resumo['Valor Inadimplente'].apply(fmt)
         st.dataframe(resumo, use_container_width=True)
 
-    # ######################################################################
-    # ## INÍCIO DA SEÇÃO MODIFICADA: RESUMO POR CLIENTE                   ##
-    # ######################################################################
     with st.expander("Clique para ver o Resumo por Cliente"):
         if 'Nome 1' in df_inad.columns and not df_inad.empty:
             
@@ -392,9 +410,6 @@ if not df_original.empty and not df_regiao.empty:
             st.warning("Coluna 'Nome 1' não encontrada na base de dados.")
         else:
             st.info("Nenhum cliente inadimplente para exibir.")
-    # ######################################################################
-    # ## FIM DA SEÇÃO MODIFICADA                                          ##
-    # ######################################################################
 
 
     # ==== GRAFICOS DE GAUGE USANDO HISTÓRICO DO GOOGLE DRIVE ====
