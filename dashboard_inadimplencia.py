@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import BytesIO
 import time
 
@@ -87,7 +87,8 @@ def classifica_exercicio(data):
     else: return "Futuro"
 
 def classifica_faixa(exercicio, dias):
-    if exercicio == "2025":
+    # Baseado na data atual (Setembro de 2025), a lógica de faixa para 2025 faz sentido.
+    if exercicio == str(datetime.now().year):
         if dias <= 30: return "Até 30 dias"
         elif dias <= 60: return "entre 31 e 60 dias"
         else: return "mais de 61 dias"
@@ -125,17 +126,37 @@ if not df_original.empty and not df_regiao.empty:
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
     
-    # ######################################################################
-    # ## INÍCIO DA ALTERAÇÃO 1: FILTRO DE EXERCÍCIO                       ##
-    # ######################################################################
-    exercicio_sel = st.sidebar.multiselect(
-        "Selecione o(s) Exercício(s):",
-        options=lista_exercicios,
-        default=lista_exercicios
-    )
-    # ######################################################################
-    # ## FIM DA ALTERAÇÃO 1                                               ##
-    # ######################################################################
+    # --- INÍCIO DA SEÇÃO MODIFICADA: FILTRO DE EXERCÍCIO COM CHECKBOX ---
+    st.sidebar.write("Selecione o(s) Exercício(s):")
+
+    # Gera chaves únicas para cada checkbox no session_state
+    exercicio_keys = [f"exercicio_{ex}" for ex in lista_exercicios]
+
+    # Inicializa o estado de cada checkbox como True (marcado) na primeira execução
+    for key in exercicio_keys:
+        if key not in st.session_state:
+            st.session_state[key] = True
+
+    # Funções para os botões de Marcar/Desmarcar Todos
+    def marcar_todos():
+        for key in exercicio_keys:
+            st.session_state[key] = True
+
+    def desmarcar_todos():
+        for key in exercicio_keys:
+            st.session_state[key] = False
+
+    # Cria os botões na barra lateral
+    col1, col2 = st.sidebar.columns(2)
+    col1.button("Marcar Todos", on_click=marcar_todos, use_container_width=True)
+    col2.button("Desmarcar Todos", on_click=desmarcar_todos, use_container_width=True)
+
+    # Renderiza os checkboxes e coleta os valores selecionados
+    for exercicio in lista_exercicios:
+        st.sidebar.checkbox(exercicio, key=f"exercicio_{exercicio}")
+
+    exercicio_sel = [exercicio for exercicio in lista_exercicios if st.session_state[f"exercicio_{exercicio}"]]
+    # --- FIM DA SEÇÃO MODIFICADA ---
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### Atualização de Dados")
@@ -153,7 +174,7 @@ if not df_original.empty and not df_regiao.empty:
         st.session_state['show_last_10_days'] = False
         st.rerun()
 
-    st.sidebar.caption("Clique para buscar os dados mais recentes das fontes de dados (Google Drive e GitHub).")
+    st.sidebar.caption("Clique para buscar os dados mais recentes.")
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
 
@@ -163,16 +184,12 @@ if not df_original.empty and not df_regiao.empty:
     if divisao_sel != "TODAS AS DIVISÕES":
         df_filt = df_filt[df_filt[col_div_princ] == divisao_sel]
     
-    # ######################################################################
-    # ## INÍCIO DA ALTERAÇÃO 2: LÓGICA DE FILTRAGEM                       ##
-    # ######################################################################
-    # Se o usuário selecionou algum exercício, filtra por eles.
-    # Se a lista estiver vazia, nenhum filtro de exercício é aplicado (mostra tudo).
+    # Lógica de filtragem para a lista de exercícios selecionados (não precisa mudar)
     if exercicio_sel:
         df_filt = df_filt[df_filt['Exercicio'].isin(exercicio_sel)]
-    # ######################################################################
-    # ## FIM DA ALTERAÇÃO 2                                               ##
-    # ######################################################################
+    else: # Se nada for selecionado, mostra um DataFrame vazio
+        df_filt = df_filt.iloc[0:0]
+
 
     hoje = datetime.now()
     df_filt["Dias de atraso"] = (hoje - df_filt["Vencimento líquido"]).dt.days
@@ -196,7 +213,7 @@ if not df_original.empty and not df_regiao.empty:
 
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
-    st.markdown(f"**Exibindo dados para:** Região: {regiao_sel} | Divisão: {divisao_sel} | Exercício(s): {', '.join(exercicio_sel) if exercicio_sel else 'Todos'}")
+    st.markdown(f"**Exibindo dados para:** Região: {regiao_sel} | Divisão: {divisao_sel} | Exercício(s): {', '.join(exercicio_sel) if exercicio_sel else 'Nenhum'}")
 
     st.markdown("### Indicadores Gerais")
     c1, c2, c3 = st.columns(3)
@@ -334,7 +351,7 @@ if not df_original.empty and not df_regiao.empty:
         resumo.rename(columns={col_div_princ: 'Divisão', 'Montante em moeda interna': 'Valor Inadimplente'}, inplace=True)
         resumo = resumo.sort_values(by='Valor Inadimplente', ascending=False)
         resumo['Valor Inadimplente'] = resumo['Valor Inadimplente'].apply(fmt)
-        st.dataframe(resumo, use_container_width=True)
+        st.dataframe(resumo, use_container_width=True, hide_index=True)
 
     with st.expander("Clique para ver o Resumo por Cliente"):
         if 'Nome 1' in df_inad.columns and not df_inad.empty:
