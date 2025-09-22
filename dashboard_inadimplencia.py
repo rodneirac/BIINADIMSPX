@@ -126,18 +126,12 @@ if not df_original.empty and not df_regiao.empty:
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
     
-    # --- INÍCIO DA SEÇÃO MODIFICADA: FILTRO DE EXERCÍCIO COM CHECKBOX ---
     st.sidebar.write("Selecione o(s) Exercício(s):")
-
-    # Gera chaves únicas para cada checkbox no session_state
     exercicio_keys = [f"exercicio_{ex}" for ex in lista_exercicios]
-
-    # Inicializa o estado de cada checkbox como True (marcado) na primeira execução
     for key in exercicio_keys:
         if key not in st.session_state:
             st.session_state[key] = True
 
-    # Funções para os botões de Marcar/Desmarcar Todos
     def marcar_todos():
         for key in exercicio_keys:
             st.session_state[key] = True
@@ -146,17 +140,14 @@ if not df_original.empty and not df_regiao.empty:
         for key in exercicio_keys:
             st.session_state[key] = False
 
-    # Cria os botões na barra lateral
     col1, col2 = st.sidebar.columns(2)
     col1.button("Marcar Todos", on_click=marcar_todos, use_container_width=True)
     col2.button("Desmarcar Todos", on_click=desmarcar_todos, use_container_width=True)
 
-    # Renderiza os checkboxes e coleta os valores selecionados
     for exercicio in lista_exercicios:
         st.sidebar.checkbox(exercicio, key=f"exercicio_{exercicio}")
 
     exercicio_sel = [exercicio for exercicio in lista_exercicios if st.session_state[f"exercicio_{exercicio}"]]
-    # --- FIM DA SEÇÃO MODIFICADA ---
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### Atualização de Dados")
@@ -184,12 +175,10 @@ if not df_original.empty and not df_regiao.empty:
     if divisao_sel != "TODAS AS DIVISÕES":
         df_filt = df_filt[df_filt[col_div_princ] == divisao_sel]
     
-    # Lógica de filtragem para a lista de exercícios selecionados (não precisa mudar)
     if exercicio_sel:
         df_filt = df_filt[df_filt['Exercicio'].isin(exercicio_sel)]
-    else: # Se nada for selecionado, mostra um DataFrame vazio
+    else: 
         df_filt = df_filt.iloc[0:0]
-
 
     hoje = datetime.now()
     df_filt["Dias de atraso"] = (hoje - df_filt["Vencimento líquido"]).dt.days
@@ -268,14 +257,14 @@ if not df_original.empty and not df_regiao.empty:
 
 
     st.markdown("### Inadimplência por Exercício")
-    df_outros = df_inad[df_inad['Exercicio'] != '2025']
+    df_outros = df_inad[df_inad['Exercicio'] != str(datetime.now().year)]
     df_outros = df_outros.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
     df_outros.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
 
-    df_2025 = df_inad[df_inad['Exercicio'] == '2025']
+    df_2025 = df_inad[df_inad['Exercicio'] == str(datetime.now().year)]
     df_2025 = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
     df_2025 = df_2025[df_2025['Faixa'] != '']
-    df_2025['Categoria'] = '2025 - ' + df_2025['Faixa']
+    df_2025['Categoria'] = f'{str(datetime.now().year)} - ' + df_2025['Faixa']
     df_2025.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
 
     df_graf = pd.concat([df_outros, df_2025[['Categoria', 'Valor']]], ignore_index=True)
@@ -289,12 +278,15 @@ if not df_original.empty and not df_regiao.empty:
         fig_bar = px.bar(df_graf, x='Categoria', y='Valor',
                             text=df_graf['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
                             color='Categoria', color_discrete_map=color_map)
-        fig_bar.update_layout(title='Detalhe por Exercício e Faixa (2025)', showlegend=False, height=400)
+        fig_bar.update_layout(title=f'Detalhe por Exercício e Faixa ({str(datetime.now().year)})', showlegend=False, height=400)
         fig_bar.update_traces(textposition='outside')
         st.plotly_chart(fig_bar, use_container_width=True)
     else:
         st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
+    # ######################################################################
+    # ## INÍCIO DA ALTERAÇÃO 1: REGRA DE COBRANÇA                         ##
+    # ######################################################################
     regra_tipo_cobranca = {
         'COBRANÇA JURÍDICA':  ['060', '60', '005', '5', '888'],
         'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
@@ -302,8 +294,13 @@ if not df_original.empty and not df_regiao.empty:
         'PERMUTA':            ['096', '96'],
         'COBRANÇA PROTESTADO': ['087', '87'],
         'ANÁLISE PROCESSO':   ['007', '7', '020', '20', '022', '22'],
-        'DIVERSOS':           ['899', '991', '026', '26', '990', '006', '6', '']
+        'COBR. TERCERIZADA':  ['899'], # <-- ALTERAÇÃO AQUI
+        'DIVERSOS':           ['991', '026', '26', '990', '006', '6', ''] # <-- ALTERAÇÃO AQUI ('899' removido)
     }
+    # ######################################################################
+    # ## FIM DA ALTERAÇÃO 1                                               ##
+    # ######################################################################
+    
     df_filt['Banco da empresa'] = df_filt['Banco da empresa'].fillna('').astype(str).str.strip()
     resultado = []
     for tipo, bancos in regra_tipo_cobranca.items():
@@ -368,15 +365,24 @@ if not df_original.empty and not df_regiao.empty:
 
             resumo_cli.rename(columns={'Nome 1': 'Cliente'}, inplace=True)
             
+            # ######################################################################
+            # ## INÍCIO DA ALTERAÇÃO 2: CLASSIFICAÇÃO DE GRAVIDADE                ##
+            # ######################################################################
             ordem_gravidade = [
                 'COBRANÇA JURÍDICA', 'COBRANÇA PROTESTADO', 'ANÁLISE PROCESSO',
+                'COBR. TERCERIZADA', # <-- ALTERAÇÃO AQUI
                 'COBRANÇA BANCÁRIA', 'CARTEIRA', 'PERMUTA', 'DIVERSOS'
             ]
             mapa_gravidade_simbolo = {
                 'COBRANÇA JURÍDICA': '🔴', 'COBRANÇA PROTESTADO': '🔴',
-                'ANÁLISE PROCESSO': '🟡', 'COBRANÇA BANCÁRIA': '🔵',
+                'ANÁLISE PROCESSO': '🟡', 
+                'COBR. TERCERIZADA': '🟡', # <-- ALTERAÇÃO AQUI
+                'COBRANÇA BANCÁRIA': '🔵',
                 'CARTEIRA': '🔵', 'PERMUTA': '⚪', 'DIVERSOS': '⚪'
             }
+            # ######################################################################
+            # ## FIM DA ALTERAÇÃO 2                                               ##
+            # ######################################################################
 
             def definir_gravidade(tipos_string):
                 for tipo in ordem_gravidade:
