@@ -113,6 +113,10 @@ if not df_original.empty and not df_regiao.empty:
     df_regiao[col_div_regiao] = df_regiao[col_div_regiao].astype(str)
     df_regiao = df_regiao.drop_duplicates(subset=[col_div_regiao])
     df_merged = pd.merge(df_original, df_regiao, on=col_div_princ, how="left")
+    
+    # --- NOVO: Lógica para identificar divisões sem região ---
+    divisoes_sem_regiao = df_merged[df_merged['Região'].isnull()][col_div_princ].unique().tolist()
+    
     soma_apos_merge = df_merged["Montante em moeda interna"].sum()
     if abs(soma_bruta_planilha - soma_apos_merge) > 1:
         st.warning(f"Soma após merge: R$ {soma_apos_merge:,.2f} difere do bruto: R$ {soma_bruta_planilha:,.2f}")
@@ -122,6 +126,7 @@ if not df_original.empty and not df_regiao.empty:
     lista_exercicios = sorted(df_merged['Exercicio'].unique())
 
     st.sidebar.title("Filtros")
+    # --- ALTERAÇÃO REVERTIDA: Voltamos a usar o .fillna para criar a opção "Não definida" ---
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
     
@@ -168,6 +173,9 @@ if not df_original.empty and not df_regiao.empty:
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
 
+    # Preenche os NaNs ANTES de filtrar para que a seleção 'Não definida' funcione
+    df_merged['Região'].fillna('Não definida', inplace=True)
+
     df_filt = df_merged.copy()
     if regiao_sel != "TODAS AS REGIÕES":
         df_filt = df_filt[df_filt['Região'] == regiao_sel]
@@ -202,6 +210,16 @@ if not df_original.empty and not df_regiao.empty:
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
     st.markdown(f"**Exibindo dados para:** Região: {regiao_sel} | Divisão: {divisao_sel} | Exercício(s): {', '.join(exercicio_sel) if exercicio_sel else 'Nenhum'}")
+
+    # --- NOVO: Bloco de alerta para divisões não mapeadas ---
+    if divisoes_sem_regiao:
+        st.warning(f"""
+        **Atenção: As seguintes divisões não foram encontradas no arquivo de mapeamento e foram agrupadas como 'Não definida':**
+        
+        {', '.join(divisoes_sem_regiao)}
+        
+        *Para corrigir, adicione estas divisões ao seu arquivo `REGIAO.xlsx` no GitHub.*
+        """)
 
     st.markdown("### Indicadores Gerais")
     c1, c2, c3 = st.columns(3)
@@ -256,29 +274,22 @@ if not df_original.empty and not df_regiao.empty:
 
 
     st.markdown("### Inadimplência por Exercício")
-    # --- INÍCIO DA SEÇÃO CORRIGIDA ---
     ano_atual_str = str(datetime.now().year)
     
-    # Processa outros exercícios
     df_outros = df_inad[df_inad['Exercicio'] != ano_atual_str]
     df_outros = df_outros.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
     df_outros.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
 
-    # Processa o exercício atual (2025)
     df_2025 = df_inad[df_inad['Exercicio'] == ano_atual_str]
     
-    # --- ALTERAÇÃO AQUI: Adiciona a verificação se o DataFrame não está vazio ---
     if not df_2025.empty:
         df_2025 = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
         df_2025 = df_2025[df_2025['Faixa'] != '']
         df_2025['Categoria'] = f'{ano_atual_str} - ' + df_2025['Faixa'].astype(str)
         df_2025.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
-        # Concatena os dois DataFrames
         df_graf = pd.concat([df_outros, df_2025[['Categoria', 'Valor']]], ignore_index=True)
     else:
-        # Se não houver dados de 2025, o gráfico usará apenas os outros anos
         df_graf = df_outros
-    # --- FIM DA SEÇÃO CORRIGIDA ---
 
     if not df_graf.empty:
         color_map = {cat: '#EA4335' for cat in df_outros['Categoria'].unique()}
