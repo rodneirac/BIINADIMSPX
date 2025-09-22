@@ -87,7 +87,6 @@ def classifica_exercicio(data):
     else: return "Futuro"
 
 def classifica_faixa(exercicio, dias):
-    # Baseado na data atual (Setembro de 2025), a lógica de faixa para 2025 faz sentido.
     if exercicio == str(datetime.now().year):
         if dias <= 30: return "Até 30 dias"
         elif dias <= 60: return "entre 31 e 60 dias"
@@ -257,36 +256,48 @@ if not df_original.empty and not df_regiao.empty:
 
 
     st.markdown("### Inadimplência por Exercício")
-    df_outros = df_inad[df_inad['Exercicio'] != str(datetime.now().year)]
+    # --- INÍCIO DA SEÇÃO CORRIGIDA ---
+    ano_atual_str = str(datetime.now().year)
+    
+    # Processa outros exercícios
+    df_outros = df_inad[df_inad['Exercicio'] != ano_atual_str]
     df_outros = df_outros.groupby('Exercicio')['Montante em moeda interna'].sum().reset_index()
     df_outros.rename(columns={'Exercicio': 'Categoria', 'Montante em moeda interna': 'Valor'}, inplace=True)
 
-    df_2025 = df_inad[df_inad['Exercicio'] == str(datetime.now().year)]
-    df_2025 = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
-    df_2025 = df_2025[df_2025['Faixa'] != '']
-    df_2025['Categoria'] = f'{str(datetime.now().year)} - ' + df_2025['Faixa']
-    df_2025.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
-
-    df_graf = pd.concat([df_outros, df_2025[['Categoria', 'Valor']]], ignore_index=True)
+    # Processa o exercício atual (2025)
+    df_2025 = df_inad[df_inad['Exercicio'] == ano_atual_str]
+    
+    # --- ALTERAÇÃO AQUI: Adiciona a verificação se o DataFrame não está vazio ---
+    if not df_2025.empty:
+        df_2025 = df_2025.groupby('Faixa')['Montante em moeda interna'].sum().reset_index()
+        df_2025 = df_2025[df_2025['Faixa'] != '']
+        df_2025['Categoria'] = f'{ano_atual_str} - ' + df_2025['Faixa'].astype(str)
+        df_2025.rename(columns={'Montante em moeda interna': 'Valor'}, inplace=True)
+        # Concatena os dois DataFrames
+        df_graf = pd.concat([df_outros, df_2025[['Categoria', 'Valor']]], ignore_index=True)
+    else:
+        # Se não houver dados de 2025, o gráfico usará apenas os outros anos
+        df_graf = df_outros
+    # --- FIM DA SEÇÃO CORRIGIDA ---
 
     if not df_graf.empty:
         color_map = {cat: '#EA4335' for cat in df_outros['Categoria'].unique()}
-        cores_2025 = ['#FFC107', '#FF9800', '#F57C00']
-        categorias_2025 = sorted(df_2025['Categoria'].unique())
-        for i, cat in enumerate(categorias_2025):
-            color_map[cat] = cores_2025[i % len(cores_2025)]
+        
+        if not df_2025.empty:
+            cores_2025 = ['#FFC107', '#FF9800', '#F57C00']
+            categorias_2025 = sorted(df_2025['Categoria'].unique())
+            for i, cat in enumerate(categorias_2025):
+                color_map[cat] = cores_2025[i % len(cores_2025)]
+
         fig_bar = px.bar(df_graf, x='Categoria', y='Valor',
-                            text=df_graf['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M'),
+                            text=df_graf['Valor'].apply(lambda x: f'{x/1_000_000:,.1f} M' if x >= 1_000_000 else f'{x/1_000:,.1f} K'),
                             color='Categoria', color_discrete_map=color_map)
-        fig_bar.update_layout(title=f'Detalhe por Exercício e Faixa ({str(datetime.now().year)})', showlegend=False, height=400)
+        fig_bar.update_layout(title=f'Detalhe por Exercício e Faixa ({ano_atual_str})', showlegend=False, height=400)
         fig_bar.update_traces(textposition='outside')
         st.plotly_chart(fig_bar, use_container_width=True)
     else:
         st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
-    # ######################################################################
-    # ## INÍCIO DA ALTERAÇÃO 1: REGRA DE COBRANÇA                         ##
-    # ######################################################################
     regra_tipo_cobranca = {
         'COBRANÇA JURÍDICA':  ['060', '60', '005', '5', '888'],
         'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
@@ -294,13 +305,9 @@ if not df_original.empty and not df_regiao.empty:
         'PERMUTA':            ['096', '96'],
         'COBRANÇA PROTESTADO': ['087', '87'],
         'ANÁLISE PROCESSO':   ['007', '7', '020', '20', '022', '22'],
-        'COBR. TERCERIZADA':  ['899'], # <-- ALTERAÇÃO AQUI
-        'DIVERSOS':           ['991', '026', '26', '990', '006', '6', ''] # <-- ALTERAÇÃO AQUI ('899' removido)
+        'COBR. TERCERIZADA':  ['899'],
+        'DIVERSOS':           ['991', '026', '26', '990', '006', '6', '']
     }
-    # ######################################################################
-    # ## FIM DA ALTERAÇÃO 1                                               ##
-    # ######################################################################
-    
     df_filt['Banco da empresa'] = df_filt['Banco da empresa'].fillna('').astype(str).str.strip()
     resultado = []
     for tipo, bancos in regra_tipo_cobranca.items():
@@ -365,24 +372,18 @@ if not df_original.empty and not df_regiao.empty:
 
             resumo_cli.rename(columns={'Nome 1': 'Cliente'}, inplace=True)
             
-            # ######################################################################
-            # ## INÍCIO DA ALTERAÇÃO 2: CLASSIFICAÇÃO DE GRAVIDADE                ##
-            # ######################################################################
             ordem_gravidade = [
                 'COBRANÇA JURÍDICA', 'COBRANÇA PROTESTADO', 'ANÁLISE PROCESSO',
-                'COBR. TERCERIZADA', # <-- ALTERAÇÃO AQUI
+                'COBR. TERCERIZADA',
                 'COBRANÇA BANCÁRIA', 'CARTEIRA', 'PERMUTA', 'DIVERSOS'
             ]
             mapa_gravidade_simbolo = {
                 'COBRANÇA JURÍDICA': '🔴', 'COBRANÇA PROTESTADO': '🔴',
                 'ANÁLISE PROCESSO': '🟡', 
-                'COBR. TERCERIZADA': '🟡', # <-- ALTERAÇÃO AQUI
+                'COBR. TERCERIZADA': '🟡',
                 'COBRANÇA BANCÁRIA': '🔵',
                 'CARTEIRA': '🔵', 'PERMUTA': '⚪', 'DIVERSOS': '⚪'
             }
-            # ######################################################################
-            # ## FIM DA ALTERAÇÃO 2                                               ##
-            # ######################################################################
 
             def definir_gravidade(tipos_string):
                 for tipo in ordem_gravidade:
