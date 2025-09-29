@@ -87,7 +87,8 @@ def classifica_exercicio(data):
     else: return "Futuro"
 
 def classifica_faixa(exercicio, dias):
-    if exercicio == str(datetime.now().year):
+    ano_atual_str = str(datetime.now().year)
+    if exercicio == ano_atual_str:
         if dias <= 30: return "Até 30 dias"
         elif dias <= 60: return "entre 31 e 60 dias"
         else: return "mais de 61 dias"
@@ -114,7 +115,6 @@ if not df_original.empty and not df_regiao.empty:
     df_regiao = df_regiao.drop_duplicates(subset=[col_div_regiao])
     df_merged = pd.merge(df_original, df_regiao, on=col_div_princ, how="left")
     
-    # --- NOVO: Lógica para identificar divisões sem região ---
     divisoes_sem_regiao = df_merged[df_merged['Região'].isnull()][col_div_princ].unique().tolist()
     
     soma_apos_merge = df_merged["Montante em moeda interna"].sum()
@@ -124,11 +124,35 @@ if not df_original.empty and not df_regiao.empty:
     df_merged["Exercicio"] = df_merged["Data do documento"].apply(classifica_exercicio)
     
     lista_exercicios = sorted(df_merged['Exercicio'].unique())
+    lista_divisoes = sorted(df_merged[col_div_princ].unique())
 
     st.sidebar.title("Filtros")
-    # --- ALTERAÇÃO REVERTIDA: Voltamos a usar o .fillna para criar a opção "Não definida" ---
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
-    divisao_sel = st.sidebar.selectbox("Selecione a Divisão:", ["TODAS AS DIVISÕES"] + sorted(df_merged[col_div_princ].unique()))
+    
+    # --- INÍCIO DA SEÇÃO MODIFICADA: FILTRO DE DIVISÃO ---
+    with st.sidebar.expander("Selecione a(s) Divisão(ões)", expanded=False):
+        divisao_keys = [f"divisao_{div}" for div in lista_divisoes]
+        for key in divisao_keys:
+            if key not in st.session_state:
+                st.session_state[key] = True
+
+        def marcar_todas_divisoes():
+            for key in divisao_keys:
+                st.session_state[key] = True
+
+        def desmarcar_todas_divisoes():
+            for key in divisao_keys:
+                st.session_state[key] = False
+
+        col1_div, col2_div = st.columns(2)
+        col1_div.button("Marcar Todas", on_click=marcar_todas_divisoes, use_container_width=True, key='marcar_div')
+        col2_div.button("Desmarcar Todas", on_click=desmarcar_todas_divisoes, use_container_width=True, key='desmarcar_div')
+
+        for divisao in lista_divisoes:
+            st.checkbox(divisao, key=f"divisao_{divisao}")
+
+    divisao_sel = [divisao for divisao in lista_divisoes if st.session_state.get(f"divisao_{divisao}", True)]
+    # --- FIM DA SEÇÃO MODIFICADA ---
     
     st.sidebar.write("Selecione o(s) Exercício(s):")
     exercicio_keys = [f"exercicio_{ex}" for ex in lista_exercicios]
@@ -136,22 +160,22 @@ if not df_original.empty and not df_regiao.empty:
         if key not in st.session_state:
             st.session_state[key] = True
 
-    def marcar_todos():
+    def marcar_todos_exercicios():
         for key in exercicio_keys:
             st.session_state[key] = True
 
-    def desmarcar_todos():
+    def desmarcar_todos_exercicios():
         for key in exercicio_keys:
             st.session_state[key] = False
 
-    col1, col2 = st.sidebar.columns(2)
-    col1.button("Marcar Todos", on_click=marcar_todos, use_container_width=True)
-    col2.button("Desmarcar Todos", on_click=desmarcar_todos, use_container_width=True)
+    col1_ex, col2_ex = st.sidebar.columns(2)
+    col1_ex.button("Marcar Todos", on_click=marcar_todos_exercicios, use_container_width=True, key='marcar_ex')
+    col2_ex.button("Desmarcar Todos", on_click=desmarcar_todos_exercicios, use_container_width=True, key='desmarcar_ex')
 
     for exercicio in lista_exercicios:
         st.sidebar.checkbox(exercicio, key=f"exercicio_{exercicio}")
 
-    exercicio_sel = [exercicio for exercicio in lista_exercicios if st.session_state[f"exercicio_{exercicio}"]]
+    exercicio_sel = [exercicio for exercicio in lista_exercicios if st.session_state.get(f"exercicio_{exercicio}", True)]
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### Atualização de Dados")
@@ -173,14 +197,17 @@ if not df_original.empty and not df_regiao.empty:
     if st.session_state['last_reload']:
         st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
 
-    # Preenche os NaNs ANTES de filtrar para que a seleção 'Não definida' funcione
     df_merged['Região'].fillna('Não definida', inplace=True)
-
     df_filt = df_merged.copy()
+
     if regiao_sel != "TODAS AS REGIÕES":
         df_filt = df_filt[df_filt['Região'] == regiao_sel]
-    if divisao_sel != "TODAS AS DIVISÕES":
-        df_filt = df_filt[df_filt[col_div_princ] == divisao_sel]
+    
+    # --- LÓGICA DE FILTRO DA DIVISÃO ATUALIZADA ---
+    if divisao_sel:
+        df_filt = df_filt[df_filt[col_div_princ].isin(divisao_sel)]
+    else:
+        df_filt = df_filt.iloc[0:0]
     
     if exercicio_sel:
         df_filt = df_filt[df_filt['Exercicio'].isin(exercicio_sel)]
@@ -209,9 +236,12 @@ if not df_original.empty and not df_regiao.empty:
 
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
-    st.markdown(f"**Exibindo dados para:** Região: {regiao_sel} | Divisão: {divisao_sel} | Exercício(s): {', '.join(exercicio_sel) if exercicio_sel else 'Nenhum'}")
+    
+    # --- ATUALIZAÇÃO DO CABEÇALHO PARA MOSTRAR OS FILTROS ---
+    texto_divisao = "Todas" if len(divisao_sel) == len(lista_divisoes) else ', '.join(divisao_sel) if divisao_sel else "Nenhuma"
+    texto_exercicio = "Todos" if len(exercicio_sel) == len(lista_exercicios) else ', '.join(exercicio_sel) if exercicio_sel else "Nenhum"
+    st.markdown(f"**Exibindo dados para:** Região: {regiao_sel} | Divisão(ões): {texto_divisao} | Exercício(s): {texto_exercicio}")
 
-    # --- NOVO: Bloco de alerta para divisões não mapeadas ---
     if divisoes_sem_regiao:
         st.warning(f"""
         **Atenção: As seguintes divisões não foram encontradas no arquivo de mapeamento e foram agrupadas como 'Não definida':**
