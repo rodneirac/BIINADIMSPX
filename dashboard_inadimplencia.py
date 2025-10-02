@@ -129,7 +129,6 @@ if not df_original.empty and not df_regiao.empty:
     st.sidebar.title("Filtros")
     regiao_sel = st.sidebar.selectbox("Selecione a Região:", ["TODAS AS REGIÕES"] + sorted(df_merged['Região'].fillna('Não definida').unique()))
     
-    # --- INÍCIO DA SEÇÃO MODIFICADA: FILTRO DE DIVISÃO ---
     with st.sidebar.expander("Selecione a(s) Divisão(ões)", expanded=False):
         divisao_keys = [f"divisao_{div}" for div in lista_divisoes]
         for key in divisao_keys:
@@ -152,50 +151,29 @@ if not df_original.empty and not df_regiao.empty:
             st.checkbox(divisao, key=f"divisao_{divisao}")
 
     divisao_sel = [divisao for divisao in lista_divisoes if st.session_state.get(f"divisao_{divisao}", True)]
-    # --- FIM DA SEÇÃO MODIFICADA ---
     
-    st.sidebar.write("Selecione o(s) Exercício(s):")
-    exercicio_keys = [f"exercicio_{ex}" for ex in lista_exercicios]
-    for key in exercicio_keys:
-        if key not in st.session_state:
-            st.session_state[key] = True
-
-    def marcar_todos_exercicios():
+    with st.sidebar.expander("Selecione o(s) Exercício(s)", expanded=False):
+        exercicio_keys = [f"exercicio_{ex}" for ex in lista_exercicios]
         for key in exercicio_keys:
-            st.session_state[key] = True
+            if key not in st.session_state:
+                st.session_state[key] = True
 
-    def desmarcar_todos_exercicios():
-        for key in exercicio_keys:
-            st.session_state[key] = False
+        def marcar_todos_exercicios():
+            for key in exercicio_keys:
+                st.session_state[key] = True
 
-    col1_ex, col2_ex = st.sidebar.columns(2)
-    col1_ex.button("Marcar Todos", on_click=marcar_todos_exercicios, use_container_width=True, key='marcar_ex')
-    col2_ex.button("Desmarcar Todos", on_click=desmarcar_todos_exercicios, use_container_width=True, key='desmarcar_ex')
+        def desmarcar_todos_exercicios():
+            for key in exercicio_keys:
+                st.session_state[key] = False
 
-    for exercicio in lista_exercicios:
-        st.sidebar.checkbox(exercicio, key=f"exercicio_{exercicio}")
+        col1_ex, col2_ex = st.columns(2)
+        col1_ex.button("Marcar Todos", on_click=marcar_todos_exercicios, use_container_width=True, key='marcar_ex')
+        col2_ex.button("Desmarcar Todos", on_click=desmarcar_todos_exercicios, use_container_width=True, key='desmarcar_ex')
+
+        for exercicio in lista_exercicios:
+            st.checkbox(exercicio, key=f"exercicio_{exercicio}")
 
     exercicio_sel = [exercicio for exercicio in lista_exercicios if st.session_state.get(f"exercicio_{exercicio}", True)]
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("#### Atualização de Dados")
-    if st.sidebar.button("🔄 Recarregar dados"):
-        st.cache_data.clear()
-        st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
-        st.session_state['show_last_10_days'] = False
-        st.rerun()
-
-    if st.sidebar.button("🗓️ Inadimplentes dos últimos 10 dias"):
-        st.session_state['show_last_10_days'] = True
-        st.rerun()
-
-    if st.sidebar.button("🧹 Limpar Filtro de Data"):
-        st.session_state['show_last_10_days'] = False
-        st.rerun()
-
-    st.sidebar.caption("Clique para buscar os dados mais recentes.")
-    if st.session_state['last_reload']:
-        st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
 
     df_merged['Região'].fillna('Não definida', inplace=True)
     df_filt = df_merged.copy()
@@ -203,7 +181,6 @@ if not df_original.empty and not df_regiao.empty:
     if regiao_sel != "TODAS AS REGIÕES":
         df_filt = df_filt[df_filt['Região'] == regiao_sel]
     
-    # --- LÓGICA DE FILTRO DA DIVISÃO ATUALIZADA ---
     if divisao_sel:
         df_filt = df_filt[df_filt[col_div_princ].isin(divisao_sel)]
     else:
@@ -225,19 +202,102 @@ if not df_original.empty and not df_regiao.empty:
     df_filt["Prazo"] = df_filt["Dias de atraso"].apply(classifica_prazo)
 
     df_inad = df_filt[df_filt["Dias de atraso"] >= 1].copy()
-    df_venc = df_filt[df_filt["Dias de atraso"] <= 0].copy()
 
+    regra_tipo_cobranca = {
+        'COBRANÇA JURÍDICA':  ['060', '60', '005', '5', '888'],
+        'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
+        'CARTEIRA':           ['999'],
+        'PERMUTA':            ['096', '96'],
+        'COBRANÇA PROTESTADO': ['087', '87'],
+        'ANÁLISE PROCESSO':   ['007', '7', '020', '20', '022', '22'],
+        'COBR. TERCERIZADA':  ['899'],
+        'DIVERSOS':           ['991', '026', '26', '990', '006', '6', '']
+    }
+    
+    if not df_inad.empty:
+        mapa_banco_para_tipo = {banco: tipo for tipo, bancos in regra_tipo_cobranca.items() for banco in bancos}
+        df_inad['Tipo de Cobrança Desc'] = df_inad['Banco da empresa'].astype(str).map(mapa_banco_para_tipo)
+        df_inad['Tipo de Cobrança Desc'].fillna('DIVERSOS', inplace=True)
+
+        resumo_cli_status = df_inad.groupby('Nome 1').agg(
+            Tipos_de_Cobranca=('Tipo de Cobrança Desc', lambda x: ', '.join(x.unique()))
+        ).reset_index()
+
+        ordem_gravidade = [
+            'COBRANÇA JURÍDICA', 'COBRANÇA PROTESTADO', 'ANÁLISE PROCESSO', 'COBR. TERCERIZADA',
+            'COBRANÇA BANCÁRIA', 'CARTEIRA', 'PERMUTA', 'DIVERSOS'
+        ]
+        mapa_gravidade_simbolo = {
+            'COBRANÇA JURÍDICA': '🔴', 'COBRANÇA PROTESTADO': '🔴', 'ANÁLISE PROCESSO': '🟡', 
+            'COBR. TERCERIZADA': '🟡', 'COBRANÇA BANCÁRIA': '🔵', 'CARTEIRA': '🔵', 'PERMUTA': '⚪', 'DIVERSOS': '⚪'
+        }
+
+        def definir_gravidade(tipos_string):
+            for tipo in ordem_gravidade:
+                if tipo in tipos_string:
+                    return mapa_gravidade_simbolo[tipo]
+            return '⚪'
+
+        resumo_cli_status['Status'] = resumo_cli_status['Tipos_de_Cobranca'].apply(definir_gravidade)
+        mapa_cliente_status = pd.Series(resumo_cli_status.Status.values, index=resumo_cli_status['Nome 1']).to_dict()
+        df_inad['Status'] = df_inad['Nome 1'].map(mapa_cliente_status)
+
+    lista_status = ['🔴', '🟡', '🔵', '⚪']
+    with st.sidebar.expander("Selecione o(s) Status", expanded=False):
+        status_keys = [f"status_{s}" for s in lista_status]
+        for key in status_keys:
+            if key not in st.session_state:
+                st.session_state[key] = True
+
+        def marcar_todos_status():
+            for key in status_keys:
+                st.session_state[key] = True
+
+        def desmarcar_todos_status():
+            for key in status_keys:
+                st.session_state[key] = False
+
+        col1_stat, col2_stat = st.columns(2)
+        col1_stat.button("Marcar Todos", on_click=marcar_todos_status, use_container_width=True, key='marcar_stat')
+        col2_stat.button("Desmarcar Todos", on_click=desmarcar_todos_status, use_container_width=True, key='desmarcar_stat')
+        
+        for status in lista_status:
+            st.checkbox(status, key=f"status_{status}")
+
+    status_sel = [status for status in lista_status if st.session_state.get(f"status_{status}", True)]
+    
+    if not df_inad.empty and status_sel:
+        df_inad = df_inad[df_inad['Status'].isin(status_sel)]
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("#### Atualização de Dados")
+    if st.sidebar.button("🔄 Recarregar dados"):
+        st.cache_data.clear()
+        st.session_state['last_reload'] = time.strftime("%d/%m/%Y %H:%M:%S")
+        st.session_state['show_last_10_days'] = False
+        st.rerun()
+
+    if st.sidebar.button("🗓️ Inadimplentes dos últimos 10 dias"):
+        st.session_state['show_last_10_days'] = True
+        st.rerun()
+
+    if st.sidebar.button("🧹 Limpar Filtro de Data"):
+        st.session_state['show_last_10_days'] = False
+        st.rerun()
+
+    st.sidebar.caption("Clique para buscar os dados mais recentes.")
+    if st.session_state['last_reload']:
+        st.sidebar.success(f"Dados recarregados em {st.session_state['last_reload']}")
+    
     tot_inad = df_inad["Montante em moeda interna"].sum()
-    tot_venc = df_venc["Montante em moeda interna"].sum()
     if "FrmPgto" in df_filt.columns:
-        soma_frmpgto_HR = df_filt[df_filt["FrmPgto"].isin(["H", "R"])]["Montante em moeda interna"].sum()
+        soma_frmpgto_HR = df_inad[df_inad["FrmPgto"].isin(["H", "R"])]["Montante em moeda interna"].sum()
     else:
         soma_frmpgto_HR = 0
 
     st.image(LOGO_URL, width=200)
     st.title("Dashboard de Análise de Inadimplência")
     
-    # --- ATUALIZAÇÃO DO CABEÇALHO PARA MOSTRAR OS FILTROS ---
     texto_divisao = "Todas" if len(divisao_sel) == len(lista_divisoes) else ', '.join(divisao_sel) if divisao_sel else "Nenhuma"
     texto_exercicio = "Todos" if len(exercicio_sel) == len(lista_exercicios) else ', '.join(exercicio_sel) if exercicio_sel else "Nenhum"
     st.markdown(f"**Exibindo dados para:** Região: {regiao_sel} | Divisão(ões): {texto_divisao} | Exercício(s): {texto_exercicio}")
@@ -260,8 +320,8 @@ if not df_original.empty and not df_regiao.empty:
     def fmt(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     with st.expander("🔍 Venda Antecipada Inadimplente – Detalhamento por Filial e Cliente"):
-        if "FrmPgto" in df_filt.columns:
-            df_antecipada = df_filt[df_filt["FrmPgto"].isin(["H", "R"])].copy()
+        if "FrmPgto" in df_inad.columns:
+            df_antecipada = df_inad[df_inad["FrmPgto"].isin(["H", "R"])].copy()
             resumo_filial = (
                 df_antecipada.groupby(col_div_princ)["Montante em moeda interna"]
                 .sum()
@@ -339,16 +399,6 @@ if not df_original.empty and not df_regiao.empty:
     else:
         st.info("Sem dados para gerar o gráfico de barras neste filtro.")
 
-    regra_tipo_cobranca = {
-        'COBRANÇA JURÍDICA':  ['060', '60', '005', '5', '888'],
-        'COBRANÇA BANCÁRIA':   ['237', '341C', '033', '001'],
-        'CARTEIRA':           ['999'],
-        'PERMUTA':            ['096', '96'],
-        'COBRANÇA PROTESTADO': ['087', '87'],
-        'ANÁLISE PROCESSO':   ['007', '7', '020', '20', '022', '22'],
-        'COBR. TERCERIZADA':  ['899'],
-        'DIVERSOS':           ['991', '026', '26', '990', '006', '6', '']
-    }
     df_filt['Banco da empresa'] = df_filt['Banco da empresa'].fillna('').astype(str).str.strip()
     resultado = []
     for tipo, bancos in regra_tipo_cobranca.items():
@@ -401,37 +451,14 @@ if not df_original.empty and not df_regiao.empty:
     with st.expander("Clique para ver o Resumo por Cliente"):
         if 'Nome 1' in df_inad.columns and not df_inad.empty:
             
-            mapa_banco_para_tipo = {banco: tipo for tipo, bancos in regra_tipo_cobranca.items() for banco in bancos}
-            df_inad_copy = df_inad.copy()
-            df_inad_copy['Tipo de Cobrança Desc'] = df_inad_copy['Banco da empresa'].astype(str).map(mapa_banco_para_tipo)
-            df_inad_copy['Tipo de Cobrança Desc'].fillna('DIVERSOS', inplace=True)
-
-            resumo_cli = df_inad_copy.groupby('Nome 1').agg(
+            resumo_cli = df_inad.groupby('Nome 1').agg(
                 Valor_Inadimplente=('Montante em moeda interna', 'sum'),
-                Tipos_de_Cobranca=('Tipo de Cobrança Desc', lambda x: ', '.join(x.unique()))
+                Tipos_de_Cobranca=('Tipo de Cobrança Desc', lambda x: ', '.join(x.unique())),
+                Status=('Status', 'first') # Pega o status que já calculamos
             ).reset_index()
 
             resumo_cli.rename(columns={'Nome 1': 'Cliente'}, inplace=True)
             
-            ordem_gravidade = [
-                'COBRANÇA JURÍDICA', 'COBRANÇA PROTESTADO', 'ANÁLISE PROCESSO',
-                'COBR. TERCERIZADA',
-                'COBRANÇA BANCÁRIA', 'CARTEIRA', 'PERMUTA', 'DIVERSOS'
-            ]
-            mapa_gravidade_simbolo = {
-                'COBRANÇA JURÍDICA': '🔴', 'COBRANÇA PROTESTADO': '🔴',
-                'ANÁLISE PROCESSO': '🟡', 
-                'COBR. TERCERIZADA': '🟡',
-                'COBRANÇA BANCÁRIA': '🔵',
-                'CARTEIRA': '🔵', 'PERMUTA': '⚪', 'DIVERSOS': '⚪'
-            }
-
-            def definir_gravidade(tipos_string):
-                for tipo in ordem_gravidade:
-                    if tipo in tipos_string:
-                        return mapa_gravidade_simbolo[tipo]
-                return '⚪'
-
             if tot_inad > 0:
                 resumo_cli['% do Total'] = resumo_cli['Valor_Inadimplente'] / tot_inad * 100
             else:
@@ -440,7 +467,6 @@ if not df_original.empty and not df_regiao.empty:
             resumo_cli = resumo_cli.sort_values(by='Valor_Inadimplente', ascending=False)
             
             resumo_cli_fmt = resumo_cli.copy()
-            resumo_cli_fmt['Status'] = resumo_cli_fmt['Tipos_de_Cobranca'].apply(definir_gravidade)
             resumo_cli_fmt['Valor Inadimplente'] = resumo_cli_fmt['Valor_Inadimplente'].apply(fmt)
             resumo_cli_fmt['% do Total'] = resumo_cli_fmt['% do Total'].apply(lambda x: f"{x:.2f}%")
             resumo_cli_fmt.rename(columns={'Tipos_de_Cobranca': 'Tipos de Cobrança'}, inplace=True)
@@ -498,8 +524,6 @@ if not df_original.empty and not df_regiao.empty:
         return fig
 
     if not df_inad.empty:
-      id_cols = ["Tipo de documento", "Referência", "Conta", "Divisão", "Banco da empresa", "Vencimento líquido"]
-      df_inad["ID"] = df_inad[id_cols].astype(str).agg("_".join, axis=1)
       df_hist = load_hist_data(URL_HIST)
       valor_quitado = 0
       valor_novos_inad = 0
@@ -507,8 +531,11 @@ if not df_original.empty and not df_regiao.empty:
       perc_novos_inad = 0
 
       if not df_hist.empty:
+          id_cols = ["Tipo de documento", "Referência", "Conta", "Divisão", "Banco da empresa", "Vencimento líquido"]
+          df_inad["ID"] = df_inad[id_cols].astype(str).agg("_".join, axis=1)
           if "ID" not in df_hist.columns:
               df_hist["ID"] = df_hist[id_cols].astype(str).agg("_".join, axis=1)
+          
           antigos = set(df_hist["ID"])
           novos = set(df_inad["ID"])
           quitados = antigos - novos
